@@ -1,10 +1,10 @@
-package tn.esprit.studentmanagement.services;
+package tn.fst.studentmanagement.services;
 
 import lombok.AllArgsConstructor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
-import tn.esprit.studentmanagement.repositories.EnrollmentRepository;
-import tn.esprit.studentmanagement.entities.Enrollment;
+import tn.fst.studentmanagement.repositories.EnrollmentRepository;
+import tn.fst.studentmanagement.entities.Enrollment;
 import java.util.List;
 
 @Service

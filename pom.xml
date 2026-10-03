@@ -8,7 +8,7 @@
         <version>3.5.5</version>
         <relativePath/> <!-- lookup parent from repository -->
     </parent>
-    <groupId>tn.esprit</groupId>
+    <groupId>tn.fst</groupId>
     <artifactId>student-management</artifactId>
     <version>0.0.1-SNAPSHOT</version>
     <name>student-management</name>

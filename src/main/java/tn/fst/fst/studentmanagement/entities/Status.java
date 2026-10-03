@@ -1,4 +1,4 @@
-package tn.esprit.studentmanagement.entities;
+package tn.fst.studentmanagement.entities;
 
 public enum Status {
     ACTIVE,

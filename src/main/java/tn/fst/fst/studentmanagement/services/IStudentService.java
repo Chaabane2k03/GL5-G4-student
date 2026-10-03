@@ -1,6 +1,6 @@
-package tn.esprit.studentmanagement.services;
+package tn.fst.studentmanagement.services;
 
-import tn.esprit.studentmanagement.entities.Student;
+import tn.fst.studentmanagement.entities.Student;
 
 import java.util.List;
 

@@ -1,9 +1,9 @@
-package tn.esprit.studentmanagement.services;
+package tn.fst.studentmanagement.services;
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
-import tn.esprit.studentmanagement.entities.Department;
-import tn.esprit.studentmanagement.repositories.DepartmentRepository;
+import tn.fst.studentmanagement.entities.Department;
+import tn.fst.studentmanagement.repositories.DepartmentRepository;
 
 import java.util.List;
 

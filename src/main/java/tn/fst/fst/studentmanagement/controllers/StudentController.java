@@ -1,10 +1,10 @@
-package tn.esprit.studentmanagement.controllers;
+package tn.fst.studentmanagement.controllers;
 
 import lombok.AllArgsConstructor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
-import tn.esprit.studentmanagement.entities.Student;
-import tn.esprit.studentmanagement.services.IStudentService;
+import tn.fst.studentmanagement.entities.Student;
+import tn.fst.studentmanagement.services.IStudentService;
 
 import java.util.List;
 
