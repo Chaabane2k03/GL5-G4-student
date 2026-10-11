@@ -1,0 +1,57 @@
+server:
+  port: 8071
+
+spring:
+  application:
+    name: config-server
+  security:
+    user:
+      name: ${CONFIG_USER}
+      password: ${CONFIG_PASSWORD}
+  cloud:
+    config:
+      server:
+        git:
+          uri: ${CONFIG_REPO_URI:https://github.com/Chaabane2k03/config-repo.git}
+          default-label: main
+          clone-on-start: true
+          force-pull: true
+          timeout: 5
+          username: ${GIT_USER:}
+          password: ${GIT_TOKEN:}
+
+encrypt:
+  key: ${ENCRYPT_KEY}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+
+---
+# Local development only. Provides fallback credentials and a fallback
+# encryption key when no environment variables are set. Never activate this
+# profile in deployment, or the fallback values would be served in production.
+spring:
+  config:
+    activate:
+      on-profile: local
+  security:
+    user:
+      name: ${CONFIG_USER:config}
+      password: ${CONFIG_PASSWORD:change-me}
+encrypt:
+  key: ${ENCRYPT_KEY:change-me}
+
+---
+# Local mode: read files from the classpath, no Git needed
+spring:
+  config:
+    activate:
+      on-profile: native
+  cloud:
+    config:
+      server:
+        native:
+          search-locations: classpath:/config/
