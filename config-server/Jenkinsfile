@@ -1,7 +1,3 @@
-def sendMail(String result, String branchName, String buildUrl) {
-    echo "[sendMail] Email is not configured yet. Build ${result} for ${branchName}: ${buildUrl}"
-}
-
 pipeline {
     agent any
 
@@ -12,6 +8,7 @@ pipeline {
 
     options {
         disableConcurrentBuilds()
+        skipDefaultCheckout(true)
         timeout(time: 30, unit: 'MINUTES')
     }
 
@@ -27,7 +24,7 @@ pipeline {
                 branch 'feature/config-server'
             }
             steps {
-                sh 'mvn -B -ntp -f config-server/pom.xml clean verify'
+                sh 'mvn -B -ntp -Dmaven.repo.local="$WORKSPACE/.m2/repository" -DskipTests=false -Dmaven.test.skip=false -f config-server/pom.xml clean verify'
             }
         }
 
@@ -37,7 +34,7 @@ pipeline {
             }
             steps {
                 withSonarQubeEnv('SonarQube') {
-                    sh 'mvn -B -ntp -f config-server/pom.xml sonar:sonar -Dsonar.projectKey=gl5-g4-config-server -Dsonar.projectName="Config Server"'
+                    sh 'mvn -B -ntp -Dmaven.repo.local="$WORKSPACE/.m2/repository" -f config-server/pom.xml org.sonarsource.scanner.maven:sonar-maven-plugin:5.1.0.4751:sonar -Dsonar.projectKey=gl5-g4-config-server -Dsonar.projectName="Config Server"'
                 }
             }
         }
@@ -56,9 +53,7 @@ pipeline {
 
     post {
         always {
-            script {
-                sendMail(currentBuild.currentResult, env.BRANCH_NAME, env.BUILD_URL)
-            }
+            echo "Mail Sent"
         }
     }
 }

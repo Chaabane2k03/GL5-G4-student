@@ -113,9 +113,8 @@ curl -u "$CONFIG_USER:$CONFIG_PASSWORD" \
 
 The [`Jenkinsfile`](./Jenkinsfile) runs the config-server Maven build and tests,
 submits a SonarQube analysis, and waits for the quality gate. Its analysis
-stages run only for `feature/config-server`. The final `sendMail` step is
-currently a placeholder that prints the build result and URL to the Jenkins
-console; it does not send email.
+stages run only for `feature/config-server`. The final mail placeholder prints
+`Mail Sent` to the Jenkins console; it does not send email.
 
 ### Jenkins and GitHub setup
 
@@ -126,8 +125,10 @@ console; it does not send email.
    Maven wrapper currently has no `.mvn/wrapper/maven-wrapper.properties`, so
    the pipeline uses Jenkins' Maven installation.)
 3. Use a Linux Jenkins agent with Docker available to the build process. The
-   config-server integration tests use Testcontainers and need a Docker
-   daemon.
+   config-server integration tests use Testcontainers; without Docker the test
+   stage now fails rather than silently skipping those tests. For a containerized
+   Jenkins agent, make the Docker daemon available to the agent (for example,
+   through a secured Docker socket or a configured remote Docker host).
 4. Create a **Multibranch Pipeline** job for this GitHub repository. Configure
    the GitHub branch source and credentials if the repository is private, and
    filter discovery to the `feature/config-server` branch. Set the Script Path
@@ -137,6 +138,9 @@ console; it does not send email.
    webhook automatically. Otherwise, add a GitHub repository webhook pointing
    to `https://<your-jenkins-host>/github-webhook/` and select **Pushes**.
    Jenkins must be reachable by GitHub for webhook-triggered builds.
+   If Jenkins reports a 403 while publishing a commit status, grant the GitHub
+   token **Commit statuses: Read and write** access to this repository (or the
+   classic `repo:status` scope). This is separate from checkout access.
 
 ### SonarQube setup
 
@@ -156,9 +160,14 @@ SonarQube edition capabilities determine whether analyses can be reported as
 feature-branch analyses; verify branch analysis support for the SonarQube
 edition in use.
 
+The pipeline stores Maven's local repository in `.m2/repository` under the
+branch workspace so dependencies and Maven plugins are reused on later builds.
+The `.m2/` directory is ignored by Git. To preserve this cache, reuse the
+multibranch workspace between builds.
+
 ### Enabling email later
 
-When email is configured, replace the `sendMail` function in the Jenkinsfile
-with the Jenkins `emailext` step (from the **Email Extension** plugin), and
-configure SMTP and recipients in Jenkins. Until then, each completed build
-prints the placeholder message in its console log.
+When email is configured, replace `echo 'Mail Sent'` in the Jenkinsfile's
+`post` section with the Jenkins `emailext` step (from the **Email Extension**
+plugin), and configure SMTP and recipients in Jenkins. Until then, each
+completed build prints the placeholder message in its console log.
