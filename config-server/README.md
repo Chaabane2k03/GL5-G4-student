@@ -157,9 +157,10 @@ stages run only for `feature/config-server`. The final mail placeholder prints
    configure its URL as `http://sonarqube:9000` and select an authentication
    token credential. The Jenkins container must be connected to the Docker
    network containing the `sonarqube` service. Keep the token in Jenkins
-   credentials; do not put it in the Jenkinsfile or repository. The pipeline
-   explicitly uses this container URL because `localhost` inside Jenkins points
-   back to Jenkins itself.
+   credentials; do not put it in the Jenkinsfile or repository. The scanner and
+   `waitForQualityGate` both use this Jenkins server configuration. Do not set
+   the URL to `localhost`: inside Jenkins, that points back to the Jenkins
+   container rather than SonarQube.
 2. In SonarQube, add a project with key `gl5-g4-config-server` (or change
    `sonar.projectKey` in the Jenkinsfile to the key you use).
 3. Configure the SonarQube webhook to
