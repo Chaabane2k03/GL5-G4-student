@@ -1,5 +1,6 @@
 package tn.fst.configserver;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mockStatic;
 
 import org.junit.jupiter.api.Test;
@@ -7,6 +8,11 @@ import org.mockito.MockedStatic;
 import org.springframework.boot.SpringApplication;
 
 class ConfigServerApplicationTest {
+
+    @Test
+    void applicationCanBeInstantiated() {
+        assertThat(new ConfigServerApplication()).isNotNull();
+    }
 
     @Test
     void mainDelegatesToSpringApplication() {

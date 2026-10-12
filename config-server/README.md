@@ -109,6 +109,58 @@ curl -u "$CONFIG_USER:$CONFIG_PASSWORD" \
   http://localhost:8071/course-service/dev
 ```
 
+## CSRF protection for POST requests
+
+CSRF protection is enabled and should remain enabled. Browsers can automatically
+send cached HTTP Basic credentials with cross-site requests; authentication by
+itself does not prevent a malicious site from causing an authenticated browser
+to submit a request. Keep form login and logout disabled, require authentication
+for all endpoints, and use CSRF tokens for state-changing HTTP methods.
+
+GET requests such as config and health reads do not require a CSRF token.
+Authenticated POST requests such as `/encrypt` and `/decrypt` do: without a
+valid token the server returns `403 Forbidden`; without valid credentials it
+returns `401 Unauthorized`. Integration tests verify both rejection without a
+token and success with a valid token.
+
+### Steps for clients that need to POST
+
+1. Keep CSRF enabled in Spring Security. Do not work around a `403` by
+   disabling CSRF or by making the POST endpoint public.
+2. Provide an authenticated GET endpoint that returns the current session's
+   CSRF token. **This Config Server does not currently expose a CSRF-token
+   endpoint**, so a client cannot yet obtain a token from its public API.
+   Implement a small protected endpoint that accepts Spring Security's
+   `CsrfToken` and returns its token value and header name, or use a browser
+   integration that obtains the token from the server.
+3. Have the client call that token endpoint with the same Basic Auth
+   credentials it will use for the POST, and retain the session cookie returned
+   by the server.
+4. Send the token in the header named by the endpoint (Spring Security's
+   default is `X-CSRF-TOKEN`) and send the same session cookie on the POST.
+   Continue to include Basic Auth. Reuse the token only with its associated
+   session, and do not log or expose it.
+5. Verify that a POST without the token returns `403`, and that the same
+   authenticated request with the session cookie and valid token succeeds.
+
+For example, **after** implementing an authenticated `/csrf` endpoint that
+returns JSON like `{"headerName":"X-CSRF-TOKEN","token":"<value>"}`, a curl
+client can preserve its session cookie and send the returned token as follows:
+
+```sh
+curl -u "$CONFIG_USER:$CONFIG_PASSWORD" \
+  -c cookies.txt -b cookies.txt \
+  http://localhost:8071/csrf
+
+# Set CSRF_TOKEN to the token returned by /csrf.
+curl -u "$CONFIG_USER:$CONFIG_PASSWORD" \
+  -b cookies.txt \
+  -H "X-CSRF-TOKEN: $CSRF_TOKEN" \
+  -H "Content-Type: text/plain" \
+  --data 'value-to-encrypt' \
+  http://localhost:8071/encrypt
+```
+
 ## Jenkins build, tests, and SonarQube
 
 The [`Jenkinsfile`](./Jenkinsfile) runs the config-server Maven build and tests,

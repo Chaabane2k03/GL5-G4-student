@@ -1,6 +1,11 @@
 package tn.fst.configserver;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.httpBasic;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import java.util.stream.Stream;
 
@@ -10,17 +15,17 @@ import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.builder.SpringApplicationBuilder;
+import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.client.TestRestTemplate;
 import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.context.ConfigurableApplicationContext;
-import org.springframework.http.HttpEntity;
-import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.test.web.servlet.MockMvc;
 import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.containers.startupcheck.OneShotStartupCheckStrategy;
 import org.testcontainers.junit.jupiter.Container;
@@ -33,6 +38,7 @@ import tn.fst.tempclient.TemporaryClientApplication;
 
 @Testcontainers(disabledWithoutDocker = true)
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+@AutoConfigureMockMvc
 class ConfigServerIntegrationTest {
 
     private static final String USER = "config-user";
@@ -55,6 +61,9 @@ class ConfigServerIntegrationTest {
 
     @Autowired
     TestRestTemplate restTemplate;
+
+    @Autowired
+    MockMvc mockMvc;
 
     @LocalServerPort
     int port;
@@ -83,10 +92,12 @@ class ConfigServerIntegrationTest {
     }
 
     @Test
-    void encryptEndpointRequiresAuthenticationEvenWithoutCsrfProtection() {
-        ResponseEntity<String> response = restTemplate.postForEntity("/encrypt", "top-secret", String.class);
-
-        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
+    void encryptEndpointRejectsAuthenticatedRequestWithoutCsrfToken() throws Exception {
+        mockMvc.perform(post("/encrypt")
+                        .with(httpBasic(USER, PASSWORD))
+                        .contentType(MediaType.TEXT_PLAIN)
+                        .content("top-secret"))
+                .andExpect(status().isForbidden());
     }
 
     static Stream<Arguments> serviceProfiles() {
@@ -135,20 +146,25 @@ class ConfigServerIntegrationTest {
     }
 
     @Test
-    void encryptsAndDecryptsValues() {
-        HttpHeaders headers = new HttpHeaders();
-        headers.setContentType(MediaType.TEXT_PLAIN);
+    void encryptsAndDecryptsValuesWithCsrfTokens() throws Exception {
+        String encrypted = mockMvc.perform(post("/encrypt")
+                        .with(httpBasic(USER, PASSWORD))
+                        .with(csrf())
+                        .contentType(MediaType.TEXT_PLAIN)
+                        .content("top-secret"))
+                .andExpect(status().isOk())
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
+        assertThat(encrypted).isNotBlank();
 
-        // This stateless transformation accepts authenticated API clients without a browser CSRF token.
-        ResponseEntity<String> encrypted = authenticated()
-                .postForEntity("/encrypt", new HttpEntity<>("top-secret", headers), String.class);
-        assertThat(encrypted.getStatusCode()).isEqualTo(HttpStatus.OK);
-        assertThat(encrypted.getBody()).isNotBlank();
-
-        ResponseEntity<String> decrypted = authenticated()
-                .postForEntity("/decrypt", new HttpEntity<>(encrypted.getBody(), headers), String.class);
-        assertThat(decrypted.getStatusCode()).isEqualTo(HttpStatus.OK);
-        assertThat(decrypted.getBody()).isEqualTo("top-secret");
+        mockMvc.perform(post("/decrypt")
+                        .with(httpBasic(USER, PASSWORD))
+                        .with(csrf())
+                                .contentType(MediaType.TEXT_PLAIN)
+                                .content(encrypted))
+                        .andExpect(status().isOk())
+                        .andExpect(content().string("top-secret"));
     }
 
     @Test

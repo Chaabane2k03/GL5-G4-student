@@ -40,8 +40,7 @@ public class TemporaryClientApplication {
 
     @Bean
     SecurityFilterChain temporaryClientSecurityFilterChain(HttpSecurity http) throws Exception {
-        http.csrf(csrf -> csrf.disable())
-                .authorizeHttpRequests(authorize -> authorize.anyRequest().permitAll());
+        http.authorizeHttpRequests(authorize -> authorize.anyRequest().permitAll());
         return http.build();
     }
 
