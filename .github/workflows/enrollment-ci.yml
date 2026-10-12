@@ -1,0 +1,27 @@
+name: enrollment-ci
+on:
+  push:
+    branches: [feature/enrollment, develop]
+    paths: ['enrollment-service/**']
+  pull_request:
+    branches: [develop]
+    paths: ['enrollment-service/**']
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: enrollment-service
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: maven
+      - run: mvn -B verify
+      - uses: actions/upload-artifact@v4
+        with:
+          name: enrollment-service-jar
+          path: enrollment-service/target/*.jar
