@@ -53,7 +53,9 @@ pipeline {
             }
             steps {
                 withSonarQubeEnv('SonarQube') {
-                    sonarDashboardUrl = "${env.SONAR_HOST_URL}/dashboard?id=gl5-g4-config-server"
+                    script {
+                        sonarDashboardUrl = "${env.SONAR_HOST_URL}/dashboard?id=gl5-g4-config-server"
+                    }
                     sh 'mvn -B -ntp -Dmaven.repo.local="$WORKSPACE/.m2/repository" -f config-server/pom.xml org.sonarsource.scanner.maven:sonar-maven-plugin:5.1.0.4751:sonar -Dsonar.projectKey=gl5-g4-config-server -Dsonar.projectName="Config Server"'
                 }
             }
