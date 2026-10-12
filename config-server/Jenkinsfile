@@ -23,6 +23,9 @@ pipeline {
             when {
                 branch 'feature/config-server'
             }
+            environment {
+                TESTCONTAINERS_HOST_OVERRIDE = 'host.docker.internal'
+            }
             steps {
                 sh 'mvn -B -ntp -Dmaven.repo.local="$WORKSPACE/.m2/repository" -DskipTests=false -Dmaven.test.skip=false -f config-server/pom.xml clean verify'
             }

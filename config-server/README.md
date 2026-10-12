@@ -127,8 +127,16 @@ stages run only for `feature/config-server`. The final mail placeholder prints
 3. Use a Linux Jenkins agent with Docker available to the build process. The
    config-server integration tests use Testcontainers; without Docker the test
    stage now fails rather than silently skipping those tests. For a containerized
-   Jenkins agent, make the Docker daemon available to the agent (for example,
-   through a secured Docker socket or a configured remote Docker host).
+   Jenkins built-in node, mount the host Docker socket into the Jenkins
+   container and grant the Jenkins user access to the socket. Add
+   `--add-host=host.docker.internal:host-gateway` to the Jenkins `docker run`
+   command: the tests use this host address to reach Testcontainers' dynamically
+   mapped ports from inside Jenkins. The pipeline sets
+   `TESTCONTAINERS_HOST_OVERRIDE=host.docker.internal` for the test stage, and
+   the test helper copies its temporary Git repository through the Docker API
+   instead of relying on a host-side bind-mount path. For a separate agent,
+   configure the equivalent host-reachable address in that agent's environment
+   and Docker setup.
 4. Create a **Multibranch Pipeline** job for this GitHub repository. Configure
    the GitHub branch source and credentials if the repository is private, and
    filter discovery to the `feature/config-server` branch. Set the Script Path

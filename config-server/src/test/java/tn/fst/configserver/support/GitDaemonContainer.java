@@ -2,10 +2,10 @@ package tn.fst.configserver.support;
 
 import java.nio.file.Path;
 
-import org.testcontainers.containers.BindMode;
 import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.containers.wait.strategy.Wait;
 import org.testcontainers.utility.DockerImageName;
+import org.testcontainers.utility.MountableFile;
 
 /**
  * Temporary Git service used by the integration tests. It runs an anonymous
@@ -20,7 +20,7 @@ public class GitDaemonContainer extends GenericContainer<GitDaemonContainer> {
     public GitDaemonContainer(Path repositoryRoot) {
         super(DockerImageName.parse("alpine:3.20"));
         withExposedPorts(GIT_PORT);
-        withFileSystemBind(repositoryRoot.toAbsolutePath().toString(), "/repos", BindMode.READ_ONLY);
+        withCopyFileToContainer(MountableFile.forHostPath(repositoryRoot.toAbsolutePath().toString()), "/repos");
         withCommand("sh", "-c",
                 "apk add --no-cache git git-daemon >/dev/null 2>&1"
                         + " && git config --global --add safe.directory '*'"
@@ -30,6 +30,6 @@ public class GitDaemonContainer extends GenericContainer<GitDaemonContainer> {
     }
 
     public String repositoryUri() {
-        return "git://localhost:" + getMappedPort(GIT_PORT) + "/" + TestConfigRepository.REPO_NAME;
+        return "git://" + getHost() + ":" + getMappedPort(GIT_PORT) + "/" + TestConfigRepository.REPO_NAME;
     }
 }

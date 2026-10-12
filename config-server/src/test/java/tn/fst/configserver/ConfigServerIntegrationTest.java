@@ -82,6 +82,13 @@ class ConfigServerIntegrationTest {
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
     }
 
+    @Test
+    void encryptEndpointRequiresAuthenticationEvenWithoutCsrfProtection() {
+        ResponseEntity<String> response = restTemplate.postForEntity("/encrypt", "top-secret", String.class);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
+    }
+
     static Stream<Arguments> serviceProfiles() {
         return Stream.of(
                 Arguments.of("student-service", "dev", "jdbc:mysql://localhost:3306/studentdb_dev"),
@@ -132,6 +139,7 @@ class ConfigServerIntegrationTest {
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.TEXT_PLAIN);
 
+        // This stateless transformation accepts authenticated API clients without a browser CSRF token.
         ResponseEntity<String> encrypted = authenticated()
                 .postForEntity("/encrypt", new HttpEntity<>("top-secret", headers), String.class);
         assertThat(encrypted.getStatusCode()).isEqualTo(HttpStatus.OK);
