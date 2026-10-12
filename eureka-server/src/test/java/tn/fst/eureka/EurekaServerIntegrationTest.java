@@ -12,6 +12,7 @@ import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.http.MediaType;
 import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.RestClient;
+import org.testcontainers.Testcontainers;
 import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.containers.wait.strategy.Wait;
 import org.testcontainers.utility.MountableFile;
@@ -41,6 +42,7 @@ class EurekaServerIntegrationTest {
                 .defaultHeader("Accept", MediaType.APPLICATION_JSON_VALUE)
                 .build();
 
+        // Verify that the Eureka server is responding.
         assertThat(restClient.get()
                 .uri("/eureka/apps")
                 .retrieve()
@@ -48,50 +50,78 @@ class EurekaServerIntegrationTest {
                 .getStatusCode()
                 .is2xxSuccessful()).isTrue();
 
-        String applicationName = "TEMP-CLIENT-" + UUID.randomUUID().toString().replace("-", "").toUpperCase();
-        String eurekaUrl = "http://host.testcontainers.internal:" + serverPort + "/eureka/";
+        String applicationName = "TEMP-CLIENT-"
+                + UUID.randomUUID().toString().replace("-", "").toUpperCase();
 
-        try (GenericContainer<?> client = temporaryClientContainer(applicationName, eurekaUrl)) {
+        String eurekaUrl = "http://host.testcontainers.internal:"
+                + serverPort + "/eureka/";
+
+        // Make the server port accessible from Testcontainers-managed containers.
+        Testcontainers.exposeHostPorts(serverPort);
+
+        try (GenericContainer<?> client =
+                     temporaryClientContainer(applicationName, eurekaUrl)) {
+
             client.start();
 
+            // Wait until the temporary client registers with Eureka.
             await().atMost(REGISTRATION_TIMEOUT)
                     .pollInterval(Duration.ofMillis(500))
-                    .untilAsserted(() -> assertThat(discoveredApplication(restClient, applicationName))
-                            .contains(applicationName));
+                    .untilAsserted(() ->
+                            assertThat(discoveredApplication(restClient, applicationName))
+                                    .contains(applicationName));
 
+            // Stop the client so its lease can expire.
             client.stop();
         }
 
+        // Wait until Eureka removes the expired client registration.
         await().atMost(EXPIRATION_TIMEOUT)
                 .pollInterval(Duration.ofMillis(500))
-                .untilAsserted(() -> assertThat(discoveredApplication(restClient, applicationName)).isEmpty());
+                .untilAsserted(() ->
+                        assertThat(discoveredApplication(restClient, applicationName))
+                                .isEmpty());
     }
 
-    private GenericContainer<?> temporaryClientContainer(String applicationName, String eurekaUrl) {
+    private GenericContainer<?> temporaryClientContainer(
+            String applicationName,
+            String eurekaUrl) {
+
         return new GenericContainer<>("maven:3.9-eclipse-temurin-17")
                 .withCopyToContainer(
-                        MountableFile.forClasspathResource("temporary-client/pom.xml"),
+                        MountableFile.forClasspathResource(
+                                "temporary-client/pom.xml"),
                         "/temporary-client/pom.xml")
                 .withCopyToContainer(
-                        MountableFile.forClasspathResource("temporary-client/src"),
+                        MountableFile.forClasspathResource(
+                                "temporary-client/src"),
                         "/temporary-client/src")
                 .withEnv("CLIENT_NAME", applicationName)
                 .withEnv("EUREKA_URL", eurekaUrl)
-                .withExtraHost("host.testcontainers.internal", "host-gateway")
                 .withExposedPorts(8080)
                 .withWorkingDirectory("/temporary-client")
-                .withCommand("mvn", "-q", "--define", "spring-boot.run.fork=false", "spring-boot:run")
+                .withCommand(
+                        "mvn",
+                        "-q",
+                        "--define",
+                        "spring-boot.run.fork=false",
+                        "spring-boot:run")
                 .waitingFor(Wait.forListeningPort())
                 .withStartupTimeout(CONTAINER_STARTUP_TIMEOUT);
     }
 
-    private String discoveredApplication(RestClient restClient, String applicationName) {
+    private String discoveredApplication(
+            RestClient restClient,
+            String applicationName) {
+
         try {
             String response = restClient.get()
                     .uri("/eureka/apps/" + applicationName)
                     .retrieve()
                     .body(String.class);
+
             return response == null ? "" : response;
+
         } catch (HttpClientErrorException.NotFound ignored) {
             return "";
         }
