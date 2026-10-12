@@ -1,0 +1,59 @@
+pipeline {
+    agent any
+
+    options {
+        timestamps()
+        timeout(time: 20, unit: 'MINUTES')
+    }
+
+    stages {
+        stage('Checkout') {
+            steps {
+                checkout scm
+            }
+        }
+
+        stage('Build and Test Eureka') {
+            steps {
+                sh 'docker info'
+
+                sh '''
+                    mvn -B \
+                      -f eureka-server/pom.xml \
+                      clean verify
+                '''
+            }
+        }
+
+        stage('SonarQube Analysis - Eureka Only') {
+            steps {
+                withSonarQubeEnv('SonarQube') {
+                    sh '''
+                        mvn -B \
+                          -f eureka-server/pom.xml \
+                          org.sonarsource.scanner.maven:sonar-maven-plugin:sonar \
+                          -Dsonar.projectKey=eureka-server \
+                          -Dsonar.projectName="Eureka Server"
+                    '''
+                }
+            }
+        }
+
+        stage('Quality Gate') {
+            steps {
+                timeout(time: 5, unit: 'MINUTES') {
+                    waitForQualityGate abortPipeline: true
+                }
+            }
+        }
+    }
+
+    post {
+        always {
+            junit(
+                testResults: 'eureka-server/target/surefire-reports/*.xml',
+                allowEmptyResults: true
+            )
+        }
+    }
+}
