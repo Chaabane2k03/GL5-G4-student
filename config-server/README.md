@@ -154,8 +154,12 @@ stages run only for `feature/config-server`. The final mail placeholder prints
 
 1. In Jenkins, open **Manage Jenkins → System → SonarQube servers**, enable
    **Environment variables**, add a server named exactly `SonarQube`, and
-   configure its URL and authentication token. Keep the token in Jenkins
-   credentials; do not put it in the Jenkinsfile or repository.
+   configure its URL as `http://sonarqube:9000` and select an authentication
+   token credential. The Jenkins container must be connected to the Docker
+   network containing the `sonarqube` service. Keep the token in Jenkins
+   credentials; do not put it in the Jenkinsfile or repository. The pipeline
+   explicitly uses this container URL because `localhost` inside Jenkins points
+   back to Jenkins itself.
 2. In SonarQube, add a project with key `gl5-g4-config-server` (or change
    `sonar.projectKey` in the Jenkinsfile to the key you use).
 3. Configure the SonarQube webhook to

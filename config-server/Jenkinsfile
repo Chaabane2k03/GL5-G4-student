@@ -37,7 +37,7 @@ pipeline {
             }
             steps {
                 withSonarQubeEnv('SonarQube') {
-                    sh 'mvn -B -ntp -Dmaven.repo.local="$WORKSPACE/.m2/repository" -f config-server/pom.xml org.sonarsource.scanner.maven:sonar-maven-plugin:5.1.0.4751:sonar -Dsonar.projectKey=gl5-g4-config-server -Dsonar.projectName="Config Server"'
+                    sh 'mvn -B -ntp -Dmaven.repo.local="$WORKSPACE/.m2/repository" -f config-server/pom.xml org.sonarsource.scanner.maven:sonar-maven-plugin:5.1.0.4751:sonar -Dsonar.host.url=http://sonarqube:9000 -Dsonar.projectKey=gl5-g4-config-server -Dsonar.projectName="Config Server"'
                 }
             }
         }
