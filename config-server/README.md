@@ -165,13 +165,14 @@ curl -u "$CONFIG_USER:$CONFIG_PASSWORD" \
 
 The [`Jenkinsfile`](./Jenkinsfile) runs the config-server Maven build and tests,
 submits a SonarQube analysis, and waits for the quality gate. Its analysis
-stages run only for `feature/config-server`. The final mail placeholder prints
-`Mail Sent` to the Jenkins console; it does not send email.
+stages run only for `feature/config-server`. The pipeline emails the build
+result, SonarQube quality-gate status, and project link. It attaches the Jenkins
+console log and any available Maven test, coverage, and SonarQube task reports.
 
 ### Jenkins and GitHub setup
 
 1. Install the **Pipeline**, **GitHub Branch Source**, **Maven Integration**,
-   and **SonarQube Scanner for Jenkins** plugins.
+   **SonarQube Scanner for Jenkins**, **JUnit**, and **Email Extension** plugins.
 2. Configure a JDK installation in **Manage Jenkins → Tools** with the name
    `JDK17` and Java 17, and a Maven installation named `Maven3`. (The root
    Maven wrapper currently has no `.mvn/wrapper/maven-wrapper.properties`, so
@@ -225,14 +226,22 @@ SonarQube edition capabilities determine whether analyses can be reported as
 feature-branch analyses; verify branch analysis support for the SonarQube
 edition in use.
 
+### Email notifications
+
+Configure SMTP in **Manage Jenkins → System → Extended E-mail Notification**,
+including a valid sender address and SMTP credentials where required. Set
+`EMAIL_RECIPIENTS` in the Jenkins job or controller environment to one or more
+comma-separated recipient addresses. The pipeline sends a notification after
+every build, including failures; the subject includes the build result and
+number. The email body links to the Jenkins build and SonarQube project and
+reports the quality-gate result (or `NOT_RUN` if analysis did not complete).
+
+The Jenkins console log is attached to the email. Maven Surefire text reports,
+the JaCoCo XML coverage report, and the SonarQube `report-task.txt` are also
+attached when they exist. Configure the Email Extension plugin's maximum
+attachment size appropriately for your build-log size.
+
 The pipeline stores Maven's local repository in `.m2/repository` under the
 branch workspace so dependencies and Maven plugins are reused on later builds.
 The `.m2/` directory is ignored by Git. To preserve this cache, reuse the
 multibranch workspace between builds.
-
-### Enabling email later
-
-When email is configured, replace `echo 'Mail Sent'` in the Jenkinsfile's
-`post` section with the Jenkins `emailext` step (from the **Email Extension**
-plugin), and configure SMTP and recipients in Jenkins. Until then, each
-completed build prints the placeholder message in its console log.
