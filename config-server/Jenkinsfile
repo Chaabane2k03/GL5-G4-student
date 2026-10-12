@@ -1,0 +1,64 @@
+def sendMail(String result, String branchName, String buildUrl) {
+    echo "[sendMail] Email is not configured yet. Build ${result} for ${branchName}: ${buildUrl}"
+}
+
+pipeline {
+    agent any
+
+    tools {
+        jdk 'JDK17'
+        maven 'Maven3'
+    }
+
+    options {
+        disableConcurrentBuilds()
+        timeout(time: 30, unit: 'MINUTES')
+    }
+
+    stages {
+        stage('Checkout') {
+            steps {
+                checkout scm
+            }
+        }
+
+        stage('Build and test') {
+            when {
+                branch 'feature/config-server'
+            }
+            steps {
+                sh 'mvn -B -ntp -f config-server/pom.xml clean verify'
+            }
+        }
+
+        stage('SonarQube analysis') {
+            when {
+                branch 'feature/config-server'
+            }
+            steps {
+                withSonarQubeEnv('SonarQube') {
+                    sh 'mvn -B -ntp -f config-server/pom.xml sonar:sonar -Dsonar.projectKey=gl5-g4-config-server -Dsonar.projectName="Config Server"'
+                }
+            }
+        }
+
+        stage('Quality gate') {
+            when {
+                branch 'feature/config-server'
+            }
+            steps {
+                timeout(time: 5, unit: 'MINUTES') {
+                    waitForQualityGate abortPipeline: true
+                }
+            }
+        }
+    }
+
+    post {
+        always {
+            script {
+                sendMail(currentBuild.currentResult, env.BRANCH_NAME, env.BUILD_URL)
+            }
+        }
+    }
+}

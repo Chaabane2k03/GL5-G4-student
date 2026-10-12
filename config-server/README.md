@@ -108,3 +108,57 @@ endpoints with Basic Auth using `CONFIG_USER` and `CONFIG_PASSWORD`, for example
 curl -u "$CONFIG_USER:$CONFIG_PASSWORD" \
   http://localhost:8071/course-service/dev
 ```
+
+## Jenkins build, tests, and SonarQube
+
+The [`Jenkinsfile`](./Jenkinsfile) runs the config-server Maven build and tests,
+submits a SonarQube analysis, and waits for the quality gate. Its analysis
+stages run only for `feature/config-server`. The final `sendMail` step is
+currently a placeholder that prints the build result and URL to the Jenkins
+console; it does not send email.
+
+### Jenkins and GitHub setup
+
+1. Install the **Pipeline**, **GitHub Branch Source**, **Maven Integration**,
+   and **SonarQube Scanner for Jenkins** plugins.
+2. Configure a JDK installation in **Manage Jenkins → Tools** with the name
+   `JDK17` and Java 17, and a Maven installation named `Maven3`. (The root
+   Maven wrapper currently has no `.mvn/wrapper/maven-wrapper.properties`, so
+   the pipeline uses Jenkins' Maven installation.)
+3. Use a Linux Jenkins agent with Docker available to the build process. The
+   config-server integration tests use Testcontainers and need a Docker
+   daemon.
+4. Create a **Multibranch Pipeline** job for this GitHub repository. Configure
+   the GitHub branch source and credentials if the repository is private, and
+   filter discovery to the `feature/config-server` branch. Set the Script Path
+   to `config-server/Jenkinsfile`.
+5. Enable GitHub push-event delivery to Jenkins. When Jenkins can configure
+   webhooks through the GitHub Branch Source credentials, it can manage the
+   webhook automatically. Otherwise, add a GitHub repository webhook pointing
+   to `https://<your-jenkins-host>/github-webhook/` and select **Pushes**.
+   Jenkins must be reachable by GitHub for webhook-triggered builds.
+
+### SonarQube setup
+
+1. In Jenkins, open **Manage Jenkins → System → SonarQube servers**, enable
+   **Environment variables**, add a server named exactly `SonarQube`, and
+   configure its URL and authentication token. Keep the token in Jenkins
+   credentials; do not put it in the Jenkinsfile or repository.
+2. In SonarQube, add a project with key `gl5-g4-config-server` (or change
+   `sonar.projectKey` in the Jenkinsfile to the key you use).
+3. Configure the SonarQube webhook to
+   `https://<your-jenkins-host>/sonarqube-webhook/`. Jenkins uses it to receive
+   the analysis result for the quality-gate stage.
+4. Push a commit to `feature/config-server`. In Jenkins, check the build/test
+   results and the SonarQube project for code-quality and security findings.
+
+SonarQube edition capabilities determine whether analyses can be reported as
+feature-branch analyses; verify branch analysis support for the SonarQube
+edition in use.
+
+### Enabling email later
+
+When email is configured, replace the `sendMail` function in the Jenkinsfile
+with the Jenkins `emailext` step (from the **Email Extension** plugin), and
+configure SMTP and recipients in Jenkins. Until then, each completed build
+prints the placeholder message in its console log.
