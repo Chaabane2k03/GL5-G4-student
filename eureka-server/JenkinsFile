@@ -1,91 +1,152 @@
-pipeline {
-    
-agent {
-    docker {
-        image 'maven-docker:3.9.16-jdk17'
-        args '-u root -v /var/run/docker.sock:/var/run/docker.sock -e DOCKER_HOST=unix:///var/run/docker.sock -e TESTCONTAINERS_HOST_OVERRIDE=host.docker.internal -e TESTCONTAINERS_RYUK_DISABLED=true'
-    }
-}
 
+pipeline {
+    agent {
+        docker {
+            image 'maven-docker:3.9.16-jdk17'
+            args '-u root -v /var/run/docker.sock:/var/run/docker.sock -e DOCKER_HOST=unix:///var/run/docker.sock -e TESTCONTAINERS_HOST_OVERRIDE=host.docker.internal -e TESTCONTAINERS_RYUK_DISABLED=true'
+        }
+    }
+
+    environment {
+        DOCKER_HOST = 'unix:///var/run/docker.sock'
+        TESTCONTAINERS_HOST_OVERRIDE = 'host.docker.internal'
+        TESTCONTAINERS_RYUK_DISABLED = 'true'
+
+        IMAGE_NAME = 'eureka-server'
+        SONAR_PROJECT_KEY = 'eureka-server'
+    }
 
     options {
-        timeout(time: 20, unit: 'MINUTES')
+        timeout(time: 30, unit: 'MINUTES')
     }
 
     stages {
         stage('Check Environment') {
             steps {
-                sh 'java -version'
-                sh 'mvn -version'
-                sh 'docker --version'
-                sh 'git --version'
+                sh '''
+                    java -version
+                    mvn -version
+                    docker --version
+                    git --version
+                '''
             }
         }
 
         stage('Checkout Repository') {
-    steps {
-        sh '''
-            git config --global --add safe.directory /var/jenkins_home/workspace/Eureka-Server-CI
-
-            if [ -d .git ]; then
-                git fetch origin feature/eureka-server
-                git checkout -B feature/eureka-server origin/feature/eureka-server
-            else
-                git clone --branch feature/eureka-server \
-                  https://github.com/Chaabane2k03/GL5-G4-student.git .
-            fi
-        '''
-    }
-}
-
-        stage('Inspect Project') {
             steps {
-                sh 'ls -la'
-                sh 'ls -la eureka-server'
-                sh 'cat eureka-server/pom.xml'
+                sh '''
+                    git config --global --add safe.directory \
+                      /var/jenkins_home/workspace/Eureka-Server-CI
+
+                    if [ -d .git ]; then
+                        git fetch origin feature/eureka-server
+                        git checkout -B feature/eureka-server \
+                          origin/feature/eureka-server
+                    else
+                        git clone --branch feature/eureka-server \
+                          https://github.com/Chaabane2k03/GL5-G4-student.git .
+                    fi
+                '''
             }
         }
 
-       
         stage('Check Docker Access') {
-    steps {
-        sh '''
-            echo "=== User ==="
-            id
+            steps {
+                sh 'docker info'
+            }
+        }
 
-            echo "=== Docker socket ==="
-            ls -l /var/run/docker.sock
-
-            echo "=== Docker host ==="
-            echo "$DOCKER_HOST"
-
-            echo "=== Docker daemon connectivity ==="
-            docker info
-        '''
-    }
-}
         stage('Build and Test Eureka') {
             steps {
                 sh '''
-                    export DOCKER_HOST=unix:///var/run/docker.sock
-                    export TESTCONTAINERS_RYUK_DISABLED=true
-    
-                    mvn -B -f eureka-server/pom.xml \
-                      clean verify
+                    mvn -B -f eureka-server/pom.xml clean verify
+                '''
+            }
+        }
+
+        stage('SonarQube Analysis') {
+            steps {
+                withSonarQubeEnv('SonarQube') {
+                    sh '''
+                        mvn -B -f eureka-server/pom.xml \
+                          org.sonarsource.scanner.maven:sonar-maven-plugin:sonar \
+                          -Dsonar.projectKey="$SONAR_PROJECT_KEY" \
+                          -Dsonar.projectName="Eureka Server"
+                    '''
+                }
+            }
+        }
+
+        stage('Quality Gate') {
+            steps {
+                timeout(time: 10, unit: 'MINUTES') {
+                    waitForQualityGate abortPipeline: true
+                }
+            }
+        }
+
+        stage('Build Docker Image') {
+            steps {
+                script {
+                    def shortSha = sh(
+                        script: 'git rev-parse --short HEAD',
+                        returnStdout: true
+                    ).trim()
+
+                    env.IMAGE_TAG = "${env.BUILD_NUMBER}-${shortSha}"
+                }
+
+                sh '''
+                    echo "Building ${IMAGE_NAME}:${IMAGE_TAG}"
+
+                    docker build \
+                      -f eureka-server/Dockerfile \
+                      -t "${IMAGE_NAME}:${IMAGE_TAG}" \
+                      -t "${IMAGE_NAME}:latest" \
+                      eureka-server
+
+                    docker images "${IMAGE_NAME}"
+                '''
+            }
+        }
+
+        stage('Trivy Image Scan') {
+            steps {
+                sh '''
+                    echo "Scanning ${IMAGE_NAME}:${IMAGE_TAG}"
+
+                    docker run --rm \
+                      -e DOCKER_HOST=unix:///var/run/docker.sock \
+                      -v /var/run/docker.sock:/var/run/docker.sock \
+                      aquasec/trivy:latest \
+                      image \
+                      --image-src docker \
+                      --scanners vuln \
+                      --severity HIGH,CRITICAL \
+                      --ignore-unfixed \
+                      --exit-code 1 \
+                      "${IMAGE_NAME}:${IMAGE_TAG}"
                 '''
             }
         }
     }
 
     post {
-        success {
-            echo 'Eureka Server build and tests completed successfully.'
-        }
-        failure {
-            echo 'Pipeline failed. Review the console output for the first error.'
-        }
         always {
+            junit(
+                testResults: 'eureka-server/target/surefire-reports/TEST-*.xml',
+                allowEmptyResults: true
+            )
+
             echo 'Pipeline execution finished.'
+        }
+
+        success {
+            echo 'Tests, SonarQube Quality Gate, Docker build and Trivy scan passed.'
+        }
+
+        failure {
+            echo 'Pipeline failed. Check the first failing stage and its console output.'
         }
     }
 }
