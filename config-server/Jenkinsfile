@@ -12,6 +12,7 @@ pipeline {
 
     options {
         disableConcurrentBuilds()
+        timestamps()
         skipDefaultCheckout(true)
         timeout(time: 30, unit: 'MINUTES')
     }
@@ -20,6 +21,42 @@ pipeline {
         stage('Checkout') {
             steps {
                 checkout scm
+            }
+        }
+
+        stage('Check environment') {
+            when {
+                branch 'feature/config-server'
+            }
+            steps {
+                sh '''
+                    set -eu
+                    test -f config-server/pom.xml || {
+                        echo >&2 'config-server/pom.xml is missing from the checked-out Jenkins workspace.'
+                        exit 1
+                    }
+                    command -v docker >/dev/null || {
+                        echo >&2 'Docker CLI is required for the Config Server integration tests.'
+                        exit 1
+                    }
+                    command -v curl >/dev/null || {
+                        echo >&2 'curl is required to check Maven Central connectivity.'
+                        exit 1
+                    }
+                    docker info >/dev/null || {
+                        echo >&2 'Jenkins cannot access the Docker daemon required by Testcontainers.'
+                        exit 1
+                    }
+                    curl --fail --silent --show-error \
+                        --retry 5 --retry-connrefused --retry-delay 2 \
+                        --output /dev/null \
+                        https://repo.maven.apache.org/maven2/org/springframework/boot/spring-boot-starter-parent/3.5.5/spring-boot-starter-parent-3.5.5.pom || {
+                        echo >&2 'Maven Central is unreachable from the Jenkins node.'
+                        exit 1
+                    }
+                    java -version
+                    mvn -version
+                '''
             }
         }
 
@@ -81,29 +118,48 @@ pipeline {
 
     post {
         always {
-            junit testResults: 'config-server/target/surefire-reports/TEST-*.xml', allowEmptyResults: true
-            emailext(
-                to: env.EMAIL_RECIPIENTS,
-                subject: "[${currentBuild.currentResult}] ${env.JOB_NAME} #${env.BUILD_NUMBER}",
-                mimeType: 'text/html',
-                body: """
-                    <h2>Config Server build ${currentBuild.currentResult}</h2>
-                    <p>The Jenkins build has completed. Review the attached console log for the full build output.</p>
-                    <ul>
-                        <li><strong>Job:</strong> ${env.JOB_NAME}</li>
-                        <li><strong>Build:</strong> <a href="${env.BUILD_URL}">#${env.BUILD_NUMBER}</a></li>
-                        <li><strong>Branch:</strong> ${env.BRANCH_NAME ?: 'unknown'}</li>
-                        <li><strong>Commit:</strong> ${env.GIT_COMMIT ?: 'unknown'}</li>
-                        <li><strong>Build and tests:</strong> ${buildAndTestStatus}</li>
-                        <li><strong>Overall Jenkins result:</strong> ${currentBuild.currentResult}</li>
-                        <li><strong>SonarQube Quality Gate:</strong> ${sonarQualityGateStatus}</li>
-                        <li><strong>SonarQube project:</strong> <a href="${sonarDashboardUrl}">${sonarDashboardUrl}</a></li>
-                    </ul>
-                    <p>Attachments include the Jenkins console log and available Maven test, coverage, and SonarQube task reports.</p>
-                """,
-                attachLog: true,
-                attachmentsPattern: 'config-server/target/surefire-reports/*.txt,config-server/target/site/jacoco/jacoco.xml,config-server/target/sonar/report-task.txt,config-server/.scannerwork/report-task.txt'
-            )
+            script {
+                def testReport = sh(
+                    script: 'if [ -d config-server/target/surefire-reports ]; then find config-server/target/surefire-reports -maxdepth 1 -type f -name "TEST-*.xml" -print -quit; fi',
+                    returnStdout: true
+                ).trim()
+                if (testReport) {
+                    junit testResults: 'config-server/target/surefire-reports/TEST-*.xml',
+                        allowEmptyResults: true
+                } else {
+                    echo 'No Maven test reports were produced.'
+                }
+            }
+            archiveArtifacts artifacts: 'config-server/target/*.jar,config-server/target/site/jacoco/jacoco.xml',
+                allowEmptyArchive: true
+            script {
+                if (env.EMAIL_RECIPIENTS?.trim()) {
+                    emailext(
+                        to: env.EMAIL_RECIPIENTS,
+                        subject: "[${currentBuild.currentResult}] ${env.JOB_NAME} #${env.BUILD_NUMBER}",
+                        mimeType: 'text/html',
+                        body: """
+                            <h2>Config Server build ${currentBuild.currentResult}</h2>
+                            <p>The Jenkins build has completed. Review the attached console log for the full build output.</p>
+                            <ul>
+                                <li><strong>Job:</strong> ${env.JOB_NAME}</li>
+                                <li><strong>Build:</strong> <a href="${env.BUILD_URL}">#${env.BUILD_NUMBER}</a></li>
+                                <li><strong>Branch:</strong> ${env.BRANCH_NAME ?: 'unknown'}</li>
+                                <li><strong>Commit:</strong> ${env.GIT_COMMIT ?: 'unknown'}</li>
+                                <li><strong>Build and tests:</strong> ${buildAndTestStatus}</li>
+                                <li><strong>Overall Jenkins result:</strong> ${currentBuild.currentResult}</li>
+                                <li><strong>SonarQube Quality Gate:</strong> ${sonarQualityGateStatus}</li>
+                                <li><strong>SonarQube project:</strong> <a href="${sonarDashboardUrl}">${sonarDashboardUrl}</a></li>
+                            </ul>
+                            <p>Attachments include the Jenkins console log and available Maven test, coverage, and SonarQube task reports.</p>
+                        """,
+                        attachLog: true,
+                        attachmentsPattern: 'config-server/target/surefire-reports/*.txt,config-server/target/site/jacoco/jacoco.xml,config-server/target/sonar/report-task.txt,config-server/.scannerwork/report-task.txt'
+                    )
+                } else {
+                    echo 'EMAIL_RECIPIENTS is not configured; skipping build notification.'
+                }
+            }
         }
     }
 }
