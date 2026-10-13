@@ -1,11 +1,11 @@
 
 pipeline {
     agent {
-        docker {
-            image 'maven:3.9.16-eclipse-temurin-17'
-            args '-u root -v /var/run/docker.sock:/var/run/docker.sock -e DOCKER_HOST=unix:///var/run/docker.sock -e TESTCONTAINERS_HOST_OVERRIDE=host.docker.internal -e TESTCONTAINERS_RYUK_DISABLED=true'
-        }
+    docker {
+        image 'maven-docker:3.9.16-jdk17'
+        args '--network jenkins-net -u root -v /var/run/docker.sock:/var/run/docker.sock -e DOCKER_HOST=unix:///var/run/docker.sock -e TESTCONTAINERS_HOST_OVERRIDE=host.docker.internal -e TESTCONTAINERS_RYUK_DISABLED=true'
     }
+}
 
     environment {
         DOCKER_HOST = 'unix:///var/run/docker.sock'
