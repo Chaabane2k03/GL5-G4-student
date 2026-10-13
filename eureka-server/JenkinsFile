@@ -3,7 +3,7 @@ pipeline {
 agent {
     docker {
         image 'maven-docker:3.9.16-jdk17'
-        args '-v /var/run/docker.sock:/var/run/docker.sock -e TESTCONTAINERS_HOST_OVERRIDE=host.docker.internal'
+        args '-u root -v /var/run/docker.sock:/var/run/docker.sock -e DOCKER_HOST=unix:///var/run/docker.sock -e TESTCONTAINERS_HOST_OVERRIDE=host.docker.internal -e TESTCONTAINERS_RYUK_DISABLED=true'
     }
 }
 
@@ -45,7 +45,23 @@ agent {
         }
 
        
+        stage('Check Docker Access') {
+    steps {
+        sh '''
+            echo "=== User ==="
+            id
 
+            echo "=== Docker socket ==="
+            ls -l /var/run/docker.sock
+
+            echo "=== Docker host ==="
+            echo "$DOCKER_HOST"
+
+            echo "=== Docker daemon connectivity ==="
+            docker info
+        '''
+    }
+}
         stage('Build and Test Eureka') {
             steps {
                 sh '''
