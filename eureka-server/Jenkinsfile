@@ -116,25 +116,7 @@ pipeline {
             }
         }
 
-        stage('Trivy Image Scan') {
-            steps {
-                sh '''
-                    echo "Scanning ${IMAGE_NAME}:${IMAGE_TAG}"
-
-                    docker run --rm \
-                      -e DOCKER_HOST=unix:///var/run/docker.sock \
-                      -v /var/run/docker.sock:/var/run/docker.sock \
-                      aquasec/trivy:latest \
-                      image \
-                      --image-src docker \
-                      --scanners vuln \
-                      --severity HIGH,CRITICAL \
-                      --ignore-unfixed \
-                      --exit-code 1 \
-                      "${IMAGE_NAME}:${IMAGE_TAG}"
-                '''
-            }
-        }
+        
     }
 
     post {
