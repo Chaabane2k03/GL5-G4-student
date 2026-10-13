@@ -5,7 +5,7 @@ Standalone Spring Boot microservice for department data. The service has no JPA 
 ## Requirements
 
 - Java 17 or newer
-- Docker, for the MySQL Testcontainers integration test
+- Docker and Docker Compose, for the MySQL deployment containers
 - MySQL 8.0+ for running the service outside tests
 
 ## Run locally
@@ -50,10 +50,38 @@ When the service is running:
 
 ## Tests and quality
 
-Run the unit and MySQL Testcontainers integration tests, package the application, and generate JaCoCo coverage:
+Run the unit tests and HTTP integration tests against the H2 in-memory database, package the application, and generate JaCoCo coverage:
 
 ```bash
 bash ./mvnw -f department-service/pom.xml clean verify
 ```
 
-Docker must be running for the integration test. The repository-root `Jenkinsfile` runs this build and test command, submits analysis to the Jenkins SonarQube installation named `SonarQube`, and fails the pipeline if the quality gate fails. Configure the SonarQube server and webhook in Jenkins before running the pipeline.
+The tests do not need Docker or MySQL. [Jenkinsfile](./Jenkinsfile) runs them in a Maven container, then builds and runs the service with MySQL using Docker Compose. It submits analysis to the Jenkins SonarQube installation named `SonarQube` and fails the pipeline if the quality gate fails.
+
+## Docker image
+
+Build and run the application and MySQL containers together:
+
+```bash
+docker compose -f department-service/compose.yaml up --build
+```
+
+This starts MySQL on port `3306` and the department API on port `8082`. The service connects to the `mysql` Compose hostname; no host network alias is needed. Defaults are for local development only. For a non-default database password, set `MYSQL_PASSWORD` and `MYSQL_ROOT_PASSWORD` in the environment before starting Compose.
+
+```bash
+docker compose -f department-service/compose.yaml down
+```
+
+The Jenkins pipeline first runs tests with H2, then builds the production image and verifies the running API against the separate MySQL container.
+
+## Jenkins configuration
+
+Configure Jenkins with:
+
+1. **Plugins:** Pipeline, Git, SonarQube Scanner for Jenkins, Email Extension, and JUnit.
+2. **Agent:** a Linux agent with Docker CLI and Docker Compose access, permission to use `/var/run/docker.sock`, and `curl`. Docker commands must work for the Jenkins agent user (`docker info`). The H2 test stage does not require Docker; the following Compose stage starts the MySQL and department-service containers.
+3. **Multibranch Pipeline:** point the script path to `department-service/Jenkinsfile`. The current stages run for branch `feature/department-service`; update the `when { branch ... }` conditions if the service branch name changes.
+4. **SonarQube:** in **Manage Jenkins → System → SonarQube servers**, add a server named exactly `SonarQube`, set its URL, and select a Jenkins credential containing a SonarQube user token. In SonarQube, configure a project with key `gl5-g4-department-service`, and configure its webhook to `https://<jenkins-url>/sonarqube-webhook/` for the quality-gate wait step.
+5. **Email:** install/configure SMTP under **Manage Jenkins → System → Extended E-mail Notification**. Set `EMAIL_RECIPIENTS` as a global environment variable or a job environment value to the notification recipient list. If it is unset, the build succeeds without sending an email.
+
+The pipeline builds the image as `gl5-g4-department-service:<BUILD_NUMBER>`; publishing it to a registry is not configured.

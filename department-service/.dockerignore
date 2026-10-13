@@ -1,0 +1,5 @@
+.git
+.m2
+.env
+**/target/*
+!department-service/target/department-service.jar
