@@ -44,22 +44,7 @@ agent {
             }
         }
 
-        stage('Check Docker API') {
-            steps {
-                sh '''
-                    echo "Checking Docker socket..."
-                    test -S /var/run/docker.sock
-                    curl -fsS --max-time 5 \
-                      --unix-socket /var/run/docker.sock \
-                      http://localhost/_ping
-                    echo
-                    curl -fsS --max-time 5 \
-                      --unix-socket /var/run/docker.sock \
-                      http://localhost/version
-                    echo
-                '''
-            }
-        }
+       
 
         stage('Build and Test Eureka') {
             steps {
