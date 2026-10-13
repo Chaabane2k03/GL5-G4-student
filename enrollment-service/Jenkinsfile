@@ -1,0 +1,41 @@
+pipeline {
+    agent any
+
+    options {
+        timestamps()
+    }
+
+    stages {
+        stage('Checkout') {
+            steps {
+                checkout scm
+            }
+        }
+
+        stage('Build & Test') {
+            steps {
+                dir('enrollment-service') {
+                    sh 'mvn -B clean verify'
+                }
+            }
+            post {
+                always {
+                    junit allowEmptyResults: true, testResults: 'enrollment-service/target/surefire-reports/TEST-*.xml'
+                }
+            }
+        }
+
+        stage('Docker Build') {
+            steps {
+                dir('enrollment-service') {
+                    sh 'docker build -t enrollment-service:${BUILD_NUMBER} -t enrollment-service:latest .'
+                }
+            }
+        }
+    }
+
+    post {
+        success { echo 'Pipeline succeeded' }
+        failure { echo 'Pipeline failed' }
+    }
+}
