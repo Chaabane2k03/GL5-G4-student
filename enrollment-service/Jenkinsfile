@@ -20,7 +20,8 @@ pipeline {
             }
             post {
                 always {
-                    junit allowEmptyResults: true, testResults: 'enrollment-service/target/surefire-reports/TEST-*.xml'
+                    junit allowEmptyResults: true,
+                          testResults: 'enrollment-service/target/surefire-reports/TEST-*.xml'
                 }
             }
         }
@@ -35,7 +36,28 @@ pipeline {
     }
 
     post {
-        success { echo 'Pipeline succeeded' }
-        failure { echo 'Pipeline failed' }
+        success {
+            echo 'Pipeline succeeded'
+        }
+        failure {
+            echo 'Pipeline failed'
+        }
+        always {
+            emailext(
+                to: 'jdidiabderrahmen1@gmail.com',
+                subject: "${env.JOB_NAME} - Build #${env.BUILD_NUMBER} - ${currentBuild.currentResult}",
+                mimeType: 'text/html',
+                body: """
+                    <h2>Jenkins Build Report</h2>
+                    <p><b>Project:</b> ${env.JOB_NAME}</p>
+                    <p><b>Build Number:</b> ${env.BUILD_NUMBER}</p>
+                    <p><b>Status:</b> ${currentBuild.currentResult}</p>
+                    <p><b>Build URL:</b>
+                    <a href="${env.BUILD_URL}">Open build details</a></p>
+                    <p><b>Console Output:</b>
+                    <a href="${env.BUILD_URL}console">View console output</a></p>
+                """
+            )
+        }
     }
 }
