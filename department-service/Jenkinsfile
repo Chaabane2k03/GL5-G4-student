@@ -52,6 +52,13 @@ pipeline {
                         echo >&2 'Docker Compose v2 is missing from the Jenkins image.'
                         exit 1
                     }
+                    curl --fail --silent --show-error \
+                        --retry 5 --retry-connrefused --retry-delay 2 \
+                        --output /dev/null \
+                        https://repo.maven.apache.org/maven2/org/springframework/boot/spring-boot-starter-parent/3.5.5/spring-boot-starter-parent-3.5.5.pom || {
+                        echo >&2 'Maven Central is unreachable from the Jenkins built-in node. Check Jenkins Docker DNS/network settings.'
+                        exit 1
+                    }
                     java -version
                     mvn -version
                 '''
@@ -71,9 +78,32 @@ pipeline {
                         exit 1
                     }
                     mkdir -p "$WORKSPACE/.m2/repository"
-                    mvn -B -ntp \
-                        -Dmaven.repo.local="$WORKSPACE/.m2/repository" \
-                        -f department-service/pom.xml clean verify
+
+                    attempt=1
+                    while [ "$attempt" -le 3 ]; do
+                        log_file=$(mktemp "$WORKSPACE/.maven-verify.XXXXXX")
+                        set +e
+                        mvn -U -B -ntp \
+                            -Dmaven.repo.local="$WORKSPACE/.m2/repository" \
+                            -f department-service/pom.xml clean verify >"$log_file" 2>&1
+                        status=$?
+                        set -e
+                        cat "$log_file"
+
+                        if [ "$status" -eq 0 ]; then
+                            rm -f "$log_file"
+                            exit 0
+                        fi
+                        if ! grep -Eqi 'UnknownHostException|Unknown host|Temporary failure in name resolution|Name or service not known' "$log_file" \
+                            || [ "$attempt" -eq 3 ]; then
+                            exit "$status"
+                        fi
+
+                        echo "Maven Central DNS failed; retrying verification (attempt $((attempt + 1)) of 3)."
+                        rm -f "$log_file"
+                        attempt=$((attempt + 1))
+                        sleep 5
+                    done
                 '''
             }
             post {
@@ -136,7 +166,7 @@ pipeline {
                     }
                     sh '''
                         set -eu
-                        mvn -B -ntp \
+                        mvn -U -B -ntp \
                             -Dmaven.repo.local="$WORKSPACE/.m2/repository" \
                             -f department-service/pom.xml \
                             org.sonarsource.scanner.maven:sonar-maven-plugin:5.3.0.6276:sonar \
