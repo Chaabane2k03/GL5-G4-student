@@ -5,8 +5,12 @@ def buildAndTestStatus = 'NOT_RUN'
 pipeline {
     agent any
 
+    tools {
+        jdk 'JDK17'
+        maven 'Maven3'
+    }
+
     environment {
-        MAVEN_IMAGE = 'maven:3.9.11-eclipse-temurin-17'
         DOCKER_IMAGE = 'gl5-g4-department-service'
     }
 
@@ -31,11 +35,25 @@ pipeline {
             steps {
                 sh '''
                     set -eu
-                    command -v docker
-                    command -v curl
-                    docker info >/dev/null
-                    docker compose version
-                    docker image inspect "$MAVEN_IMAGE" >/dev/null 2>&1 || docker pull "$MAVEN_IMAGE"
+                    command -v docker || {
+                        echo >&2 'Docker CLI is missing on the Jenkins built-in node.'
+                        echo >&2 'Rebuild Jenkins with jenkins/Dockerfile and mount /var/run/docker.sock.'
+                        exit 1
+                    }
+                    command -v curl || {
+                        echo >&2 'curl is required on the Jenkins built-in node.'
+                        exit 1
+                    }
+                    docker info >/dev/null || {
+                        echo >&2 'Jenkins cannot access the Docker daemon. Check the Docker socket mount and group_add configuration.'
+                        exit 1
+                    }
+                    docker compose version >/dev/null || {
+                        echo >&2 'Docker Compose v2 is missing from the Jenkins image.'
+                        exit 1
+                    }
+                    java -version
+                    mvn -version
                 '''
             }
         }
@@ -47,15 +65,15 @@ pipeline {
             steps {
                 sh '''
                     set -eu
+                    echo "Building from Jenkins workspace: $WORKSPACE"
+                    test -f department-service/pom.xml || {
+                        echo >&2 'department-service/pom.xml is missing from the checked-out Jenkins workspace.'
+                        exit 1
+                    }
                     mkdir -p "$WORKSPACE/.m2/repository"
-                    docker run --rm \
-                        --user "$(id -u):$(id -g)" \
-                        -v "$WORKSPACE:/workspace" \
-                        -v "$WORKSPACE/.m2/repository:/maven-repository" \
-                        -w /workspace \
-                        "$MAVEN_IMAGE" \
-                        mvn -B -ntp -Dmaven.repo.local=/maven-repository \
-                            -f department-service/pom.xml clean verify
+                    mvn -B -ntp \
+                        -Dmaven.repo.local="$WORKSPACE/.m2/repository" \
+                        -f department-service/pom.xml clean verify
                 '''
             }
             post {
@@ -118,19 +136,12 @@ pipeline {
                     }
                     sh '''
                         set -eu
-                        docker run --rm \
-                            --user "$(id -u):$(id -g)" \
-                            -v "$WORKSPACE:/workspace" \
-                            -v "$WORKSPACE/.m2/repository:/maven-repository" \
-                            -w /workspace \
-                            -e SONAR_HOST_URL \
-                            -e SONAR_AUTH_TOKEN \
-                            "$MAVEN_IMAGE" \
-                            mvn -B -ntp -Dmaven.repo.local=/maven-repository \
-                                -f department-service/pom.xml \
-                                org.sonarsource.scanner.maven:sonar-maven-plugin:5.3.0.6276:sonar \
-                                -Dsonar.projectKey=gl5-g4-department-service \
-                                -Dsonar.projectName="Department Service"
+                        mvn -B -ntp \
+                            -Dmaven.repo.local="$WORKSPACE/.m2/repository" \
+                            -f department-service/pom.xml \
+                            org.sonarsource.scanner.maven:sonar-maven-plugin:5.3.0.6276:sonar \
+                            -Dsonar.projectKey=gl5-g4-department-service \
+                            -Dsonar.projectName="Department Service"
                     '''
                 }
             }
@@ -156,8 +167,18 @@ pipeline {
 
     post {
         always {
-            junit testResults: 'department-service/target/surefire-reports/TEST-*.xml',
-                allowEmptyResults: true
+            script {
+                def testReport = sh(
+                    script: 'if [ -d department-service/target/surefire-reports ]; then find department-service/target/surefire-reports -maxdepth 1 -type f -name "TEST-*.xml" -print -quit; fi',
+                    returnStdout: true
+                ).trim()
+                if (testReport) {
+                    junit testResults: 'department-service/target/surefire-reports/TEST-*.xml',
+                        allowEmptyResults: true
+                } else {
+                    echo 'No Maven test reports were produced.'
+                }
+            }
             archiveArtifacts artifacts: 'department-service/target/department-service.jar,department-service/target/site/jacoco/jacoco.xml',
                 allowEmptyArchive: true
             script {

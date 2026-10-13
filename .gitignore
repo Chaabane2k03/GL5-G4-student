@@ -42,3 +42,5 @@ Thumbs.db
 .env.*
 !.env.example
 .m2
+
+jenkins/
