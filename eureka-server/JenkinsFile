@@ -23,18 +23,20 @@ agent {
         }
 
         stage('Checkout Repository') {
-            steps {
-                sh '''
-                    if [ -d .git ]; then
-                        git fetch origin feature/eureka-server
-                        git checkout -B feature/eureka-server origin/feature/eureka-server
-                    else
-                        git clone --branch feature/eureka-server \
-                          https://github.com/Chaabane2k03/GL5-G4-student.git .
-                    fi
-                '''
-            }
-        }
+    steps {
+        sh '''
+            git config --global --add safe.directory /var/jenkins_home/workspace/Eureka-Server-CI
+
+            if [ -d .git ]; then
+                git fetch origin feature/eureka-server
+                git checkout -B feature/eureka-server origin/feature/eureka-server
+            else
+                git clone --branch feature/eureka-server \
+                  https://github.com/Chaabane2k03/GL5-G4-student.git .
+            fi
+        '''
+    }
+}
 
         stage('Inspect Project') {
             steps {
