@@ -1,0 +1,39 @@
+pipeline {
+    agent any
+
+    options {
+        timestamps()
+        skipDefaultCheckout(true)
+    }
+
+    stages {
+        stage('Checkout') {
+            steps {
+                checkout scm
+            }
+        }
+
+        stage('Build and Test') {
+            steps {
+                sh 'docker info >/dev/null'
+                sh 'bash ./mvnw -B -ntp -f department-service/pom.xml clean verify'
+            }
+        }
+
+        stage('SonarQube Analysis') {
+            steps {
+                withSonarQubeEnv('SonarQube') {
+                    sh 'bash ./mvnw -B -ntp -f department-service/pom.xml org.sonarsource.scanner.maven:sonar-maven-plugin:5.3.0.6276:sonar'
+                }
+            }
+        }
+
+        stage('Quality Gate') {
+            steps {
+                timeout(time: 5, unit: 'MINUTES') {
+                    waitForQualityGate(abortPipeline: true)
+                }
+            }
+        }
+    }
+}
