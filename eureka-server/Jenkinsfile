@@ -2,7 +2,7 @@
 pipeline {
     agent {
         docker {
-            image 'maven-docker:3.9.16-jdk17'
+            image 'maven:3.9.16-eclipse-temurin-17'
             args '-u root -v /var/run/docker.sock:/var/run/docker.sock -e DOCKER_HOST=unix:///var/run/docker.sock -e TESTCONTAINERS_HOST_OVERRIDE=host.docker.internal -e TESTCONTAINERS_RYUK_DISABLED=true'
         }
     }
@@ -24,6 +24,12 @@ pipeline {
         stage('Check Environment') {
             steps {
                 sh '''
+                    if ! command -v docker >/dev/null 2>&1; then
+                        apt-get update
+                        apt-get install -y --no-install-recommends docker.io git
+                        rm -rf /var/lib/apt/lists/*
+                    fi
+
                     java -version
                     mvn -version
                     docker --version
