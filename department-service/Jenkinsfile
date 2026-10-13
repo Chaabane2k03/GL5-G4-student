@@ -131,13 +131,17 @@ pipeline {
                         -f department-service/compose.yaml up -d --build
                     ready=0
                     for attempt in $(seq 1 60); do
-                        if curl --fail --silent http://localhost:8082/v3/api-docs >/dev/null; then
+                        if curl --fail --silent --show-error --connect-timeout 2 \
+                            http://host.docker.internal:8082/v3/api-docs >/dev/null; then
                             ready=1
                             break
                         fi
                         sleep 2
                     done
                     if [ "$ready" -ne 1 ]; then
+                        echo >&2 'Department service did not respond through the Docker host gateway at host.docker.internal:8082.'
+                        docker compose -p "department-service-$BUILD_NUMBER" \
+                            -f department-service/compose.yaml ps
                         docker compose -p "department-service-$BUILD_NUMBER" \
                             -f department-service/compose.yaml logs
                         exit 1
