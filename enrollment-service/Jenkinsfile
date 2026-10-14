@@ -26,6 +26,20 @@ pipeline {
             }
         }
 
+        stage('SonarQube Analysis') {
+            steps {
+                withSonarQubeEnv('SonarQube') {
+                    dir('enrollment-service') {
+                        sh '''
+                            mvn -B org.sonarsource.scanner.maven:sonar-maven-plugin:sonar \
+                              -Dsonar.projectKey=enrollment-service \
+                              -Dsonar.projectName="Enrollment Service"
+                        '''
+                    }
+                }
+            }
+        }
+
         stage('Docker Build') {
             steps {
                 dir('enrollment-service') {
