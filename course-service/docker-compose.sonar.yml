@@ -1,0 +1,47 @@
+services:
+  sonar-db:
+    image: ${SONAR_DB_IMAGE:-postgres:15-alpine}
+    container_name: ${SONAR_DB_CONTAINER_NAME:-course-sonar-db}
+    environment:
+      POSTGRES_USER: ${SONAR_DB_USER:-sonar}
+      POSTGRES_PASSWORD: ${SONAR_DB_PASSWORD:-sonar}
+      POSTGRES_DB: ${SONAR_DB_NAME:-sonar}
+    volumes:
+      - sonar-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${SONAR_DB_USER:-sonar} -d ${SONAR_DB_NAME:-sonar}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  sonarqube:
+    image: ${SONAR_IMAGE:-sonarqube:10.6-community}
+    container_name: ${SONAR_CONTAINER_NAME:-course-sonarqube}
+    depends_on:
+      sonar-db:
+        condition: service_healthy
+    environment:
+      SONAR_JDBC_URL: ${SONAR_JDBC_URL:-jdbc:postgresql://sonar-db:5432/sonar}
+      SONAR_JDBC_USERNAME: ${SONAR_DB_USER:-sonar}
+      SONAR_JDBC_PASSWORD: ${SONAR_DB_PASSWORD:-sonar}
+      SONAR_ES_BOOTSTRAP_CHECKS_DISABLE: ${SONAR_ES_BOOTSTRAP_CHECKS_DISABLE:-true}
+    ports:
+      - "${SONAR_PORT:-9000}:9000"
+    volumes:
+      - sonar-data:/opt/sonarqube/data
+      - sonar-extensions:/opt/sonarqube/extensions
+      - sonar-logs:/opt/sonarqube/logs
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:9000/api/system/status | grep -q '\"status\":\"UP\"' || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 90s
+    restart: unless-stopped
+
+volumes:
+  sonar-db-data:
+  sonar-data:
+  sonar-extensions:
+  sonar-logs:

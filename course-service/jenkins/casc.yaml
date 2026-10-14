@@ -1,0 +1,74 @@
+jenkins:
+  systemMessage: "course-service CI - managed by Configuration as Code"
+  numExecutors: 2
+  scmCheckoutRetryCount: 2
+  mode: NORMAL
+
+  securityRealm:
+    local:
+      allowsSignup: false
+      users:
+        - id: "admin"
+          password: "admin"
+
+  authorizationStrategy:
+    loggedInUsersCanDoAnything:
+      allowAnonymousRead: false
+
+  crumbIssuer:
+    standard:
+      excludeClientIPFromCrumb: true
+
+tool:
+  jdk:
+    installations:
+      - name: "jdk17"
+        home: "/opt/java/openjdk"
+  maven:
+    installations:
+      - name: "maven-3.9"
+        home: "/opt/maven"
+
+credentials:
+  system:
+    domainCredentials:
+      - credentials:
+          - string:
+              scope: GLOBAL
+              id: "sonar-token"
+              secret: "${SONAR_TOKEN}"
+              description: "SonarQube user token (supplied via the SONAR_TOKEN environment variable)"
+          - usernamePassword:
+              scope: GLOBAL
+              id: "docker-registry"
+              username: "ci"
+              password: "ci"
+              description: "Dummy registry credential - only used by the push stage on main"
+
+unclassified:
+  location:
+    url: "${JENKINS_EXTERNAL_URL}"
+    adminAddress: "ci@localhost"
+  sonarGlobalConfiguration:
+    installations:
+      - name: "sonarqube"
+        serverUrl: "http://host.docker.internal:9000"
+        credentialsId: "sonar-token"
+
+jobs:
+  - script: |
+      pipelineJob('course-service') {
+        description('CI/CD pipeline for course-service (build, tests, coverage, SonarQube, Docker).')
+        definition {
+          cpsScm {
+            scm {
+              git {
+                remote { url('file:///src/course-service') }
+                branch('main')
+              }
+            }
+            scriptPath('Jenkinsfile')
+            lightweight(true)
+          }
+        }
+      }

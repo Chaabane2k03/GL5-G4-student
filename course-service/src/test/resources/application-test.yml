@@ -1,0 +1,11 @@
+# Test profile.
+# No datasource URL is defined here: Testcontainers @ServiceConnection provides the
+# connection details (username, password, URL) at runtime.
+spring:
+  sql:
+    init:
+      mode: always
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false

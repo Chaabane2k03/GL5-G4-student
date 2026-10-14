@@ -1,0 +1,45 @@
+# Jenkins controller for the course-service pipeline.
+# Adds the Docker CLI + Compose plugin (so pipeline `docker build` / `docker compose`
+# work via the mounted host socket) and a Maven distribution whose home is referenced
+# by the "maven-3.9" tool in jenkins/casc.yaml. JDK 17 is already provided by the base image.
+FROM jenkins/jenkins:lts-jdk17
+
+USER root
+
+# ---- Docker CLI + Compose plugin ----
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        ca-certificates curl gnupg git \
+    && install -m 0755 -d /etc/apt/keyrings \
+    && curl -fsSL https://download.docker.com/linux/debian/gpg -o /etc/apt/keyrings/docker.asc \
+    && chmod a+r /etc/apt/keyrings/docker.asc \
+    && . /etc/os-release \
+    && echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/debian ${VERSION_CODENAME} stable" \
+        > /etc/apt/sources.list.d/docker.list \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends docker-ce-cli docker-compose-plugin \
+    && rm -rf /var/lib/apt/lists/*
+
+# ---- Maven (home referenced by the "maven-3.9" tool) ----
+ARG MAVEN_VERSION=3.9.9
+RUN curl -fsSL "https://archive.apache.org/dist/maven/maven-3/${MAVEN_VERSION}/binaries/apache-maven-${MAVEN_VERSION}-bin.tar.gz" \
+        -o /tmp/maven.tgz \
+    && mkdir -p /opt/maven \
+    && tar -xzf /tmp/maven.tgz -C /opt/maven --strip-components=1 \
+    && rm /tmp/maven.tgz
+
+# ---- Plugins used by the pipeline and by configuration-as-code ----
+RUN jenkins-plugin-cli --plugins \
+        configuration-as-code \
+        job-dsl \
+        workflow-aggregator \
+        git \
+        junit \
+        jacoco \
+        sonar \
+        credentials-binding
+
+# Bind-mounted repositories report a foreign owner inside the container; trust them.
+USER root
+RUN git config --system --add safe.directory '*'
+
+USER jenkins
