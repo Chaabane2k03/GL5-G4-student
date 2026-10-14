@@ -1,0 +1,274 @@
+# Course Service
+
+Standalone REST microservice to manage courses (create, read, update, archive, activate),
+built with **Spring Boot 3.5.16** on **Java 17** and **Maven**.
+
+The service owns its own MySQL database and references departments **by id only** — it holds
+no foreign keys or joins to other services, so it can be deployed and evolved independently.
+
+---
+
+## 1. Tech stack
+
+| Concern            | Choice                                              |
+|--------------------|-----------------------------------------------------|
+| Language / runtime | Java 17                                             |
+| Framework          | Spring Boot 3.5.16 (Web, Data JPA, Validation)      |
+| Database           | MySQL 8.0 (schema managed by `schema.sql`)          |
+| API docs           | springdoc-openapi 2.9.1 (Swagger UI)                |
+| Testing            | JUnit 5, Mockito, MockMvc, Testcontainers           |
+| Coverage           | JaCoCo (LINE ≥ 90 %, BRANCH ≥ 80 %)                  |
+| Quality            | SonarQube                                            |
+| Packaging          | Multi-stage Docker image (non-root) + Docker Compose |
+| CI                 | Jenkins (`Jenkinsfile`)                             |
+
+---
+
+## 2. Prerequisites
+
+- JDK 17+
+- Maven 3.9+
+- Docker (with Compose v2) — **it must be running**, because the tests use Testcontainers
+  (they start a real MySQL) and the Docker workflow needs the daemon.
+
+---
+
+## 3. Configuration
+
+All environment-specific values are externalised: `application.yml` / `docker-compose*.yml` carry
+safe defaults and every value can be overridden through environment variables. Copy `.env.example`
+to `.env` (git-ignored) to override the Docker Compose defaults.
+
+| Group             | Variables                                                                                                     | Defaults |
+|-------------------|---------------------------------------------------------------------------------------------------------------|----------|
+| Database (app)    | `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER`, `DB_PASSWORD`, `DB_JDBC_PARAMS`                                     | `localhost`, `3308`, `course_db`, `course_user`, `course_pass`, `useSSL=false&…` |
+| Application       | `SERVER_PORT`, `SPRING_APP_NAME`, `JPA_DDL_AUTO`, `JPA_OPEN_IN_VIEW`, `SQL_INIT_MODE`, `SQL_SCHEMA_LOCATIONS`, `LOG_LEVEL_ROOT`, `MANAGEMENT_ENDPOINTS`, `MANAGEMENT_HEALTH_PROBES`, `HIBERNATE_JDBC_TIME_ZONE` | `8084`, `course-service`, `validate`, `false`, `always`, … |
+| OpenAPI / Swagger | `SPRINGDOC_SWAGGER_UI_PATH`, `SPRINGDOC_API_DOCS_PATH`, `APP_OPENAPI_TITLE`, `APP_OPENAPI_VERSION`, `APP_OPENAPI_DESCRIPTION` | `/swagger-ui.html`, `/v3/api-docs`, … |
+| MySQL container   | `MYSQL_IMAGE`, `MYSQL_ROOT_PASSWORD`, `DB_CONTAINER_NAME`, `DB_CONTAINER_PORT`, `DB_HOST_PORT`                   | `mysql:8.0`, `rootpass`, … |
+| Service container | `SERVICE_IMAGE`, `SERVICE_CONTAINER_NAME`                                                                       | `course-service:latest`, `course-service` |
+| SonarQube stack   | `SONAR_PORT`, `SONAR_IMAGE`, `SONAR_CONTAINER_NAME`, `SONAR_DB_IMAGE`, `SONAR_DB_CONTAINER_NAME`, `SONAR_DB_USER`, `SONAR_DB_PASSWORD`, `SONAR_DB_NAME`, `SONAR_JDBC_URL`, `SONAR_ES_BOOTSTRAP_CHECKS_DISABLE` | `9000`, `sonarqube:10.6-community`, … |
+
+The full annotated inventory lives in [`.env.example`](.env.example).
+
+Key behaviour:
+
+- Hibernate `ddl-auto=validate` — the schema is **never** generated from the entities.
+- `schema.sql` is applied on startup (single source of truth for the DDL: unique `code`,
+  CHECK `credits` 1–30, CHECK `status` in `ACTIVE`/`ARCHIVED`).
+- Actuator exposes `health` and `info`; Swagger at `/swagger-ui.html`, spec at `/v3/api-docs`
+  (all configurable).
+- Business/API-contract constants (max page size, allowed sort fields, default sort, MySQL
+  duplicate-code detection) stay in code — they don't vary per environment. JaCoCo thresholds are
+  Maven properties (`-Djacoco.line.min`, `-Djacoco.branch.min`); the SonarQube host is **not**
+  hardcoded (defaults to `http://localhost:9000`, overridable via `-Dsonar.host.url`/`SONAR_HOST_URL`).
+
+---
+
+## 4. Running
+
+### 4.1 Full stack with Docker Compose (recommended)
+
+```bash
+docker compose up -d --build
+```
+
+This starts MySQL (`course-db`, host port `3308`) and the service (`course-service`, port `8084`).
+Both containers have health checks; the service waits for the database to be healthy.
+
+| Endpoint          | URL                                       |
+|-------------------|-------------------------------------------|
+| API base          | `http://localhost:8084/api/courses`       |
+| Swagger UI        | `http://localhost:8084/swagger-ui.html`   |
+| OpenAPI JSON      | `http://localhost:8084/v3/api-docs`       |
+| Health (actuator) | `http://localhost:8084/actuator/health`   |
+
+Stop:
+
+```bash
+docker compose down       # keep data
+docker compose down -v    # also delete the DB volume
+```
+
+### 4.2 Locally against your own MySQL
+
+```bash
+# provision a database/user matching the defaults, then:
+mvn spring-boot:run
+```
+
+---
+
+## 5. API
+
+Base path: `/api/courses`. All bodies are JSON. Errors share one uniform shape.
+
+| Method   | Path                         | Description                          | Success | Errors        |
+|----------|------------------------------|--------------------------------------|---------|---------------|
+| `POST`   | `/api/courses`               | Create a course (starts `ACTIVE`)    | `201`   | `400`, `409`  |
+| `GET`    | `/api/courses/{id}`          | Get a course by id                   | `200`   | `404`         |
+| `GET`    | `/api/courses`               | List courses (filter + paging)       | `200`   | `400`         |
+| `PUT`    | `/api/courses/{id}`          | Update mutable fields (status kept)  | `200`   | `400`, `404`, `409` |
+| `DELETE` | `/api/courses/{id}`          | Archive a course (idempotent)        | `204`   | `404`         |
+| `PATCH`  | `/api/courses/{id}/activate` | Activate a course (idempotent)       | `200`   | `404`         |
+
+**List query parameters:** `departmentId`, `status` (`ACTIVE`|`ARCHIVED`), `page` (≥0, default 0),
+`size` (1–100, default 20), `sort` (`field` or `field,direction`, default `code,asc`).
+Allowed sort fields: `id`, `code`, `title`, `credits`, `createdAt`.
+
+### Example
+
+```bash
+curl -X POST http://localhost:8084/api/courses \
+  -H 'Content-Type: application/json' \
+  -d '{"code":"CS101","title":"Intro","description":"desc","credits":6,"departmentId":1}'
+```
+
+```json
+{
+  "content": [
+    {
+      "id": 1, "code": "CS101", "title": "Intro", "description": "desc",
+      "credits": 6, "departmentId": 1, "status": "ACTIVE",
+      "createdAt": "2026-10-13T18:37:49.030984", "updatedAt": "2026-10-13T18:37:49.0311"
+    }
+  ],
+  "page": 0, "size": 20, "totalElements": 1, "totalPages": 1, "first": true, "last": true
+}
+```
+
+### Error model
+
+```json
+{
+  "timestamp": "2026-10-13T18:40:00Z",
+  "status": 400,
+  "error": "Bad Request",
+  "message": "Validation failed",
+  "path": "/api/courses",
+  "fieldErrors": [ { "field": "code", "message": "code must not be blank" } ]
+}
+```
+
+`fieldErrors` is empty unless the failure is request validation.
+
+---
+
+## 6. Testing
+
+```bash
+mvn -B test      # all tests (Docker must be running)
+mvn -B verify    # tests + JaCoCo report + coverage gate (LINE ≥ 90 %, BRANCH ≥ 80 %)
+```
+
+Test layers:
+
+- **Unit** — `CourseServiceImplTest` (service logic, duplicate-race detection, sort/paging validation)
+- **Web slice** — `CourseControllerTest` (`@WebMvcTest`: status codes, error bodies)
+- **Persistence slice** — `CourseRepositoryTest` (`@DataJpaTest` on a real MySQL container:
+  unique key + CHECK constraints, filters, paging, sorting)
+- **End-to-end** — `CourseServiceApplicationTests` (full context boot + real HTTP via `TestRestTemplate`)
+
+A single MySQL 8.0 Testcontainer is shared across the DB-backed tests.
+
+### Trying the API by hand
+
+With the stack running, a couple of quick checks (curl):
+
+```bash
+curl http://localhost:8084/actuator/health
+curl http://localhost:8084/api/courses
+curl http://localhost:8084/api/courses/1
+curl -X DELETE http://localhost:8084/api/courses/1                       # archive -> 204
+curl -X PATCH http://localhost:8084/api/courses/1/activate               # activate -> 200
+```
+
+Posting the same `code` twice returns `409`; an unknown id returns `404`; an invalid body
+returns `400` with `fieldErrors`.
+
+---
+
+## 7. Docker
+
+`Dockerfile` is a multi-stage build: Maven builds the fat jar in the builder stage, then the
+runtime image (`eclipse-temurin:17-jre-alpine`) runs it as an unprivileged `app` user and exposes
+a container-level health check against `/actuator/health`.
+
+```bash
+docker build -t course-service:latest .
+docker compose up -d --no-build
+docker compose ps                     # status + health
+docker compose logs -f course-service
+```
+
+---
+
+## 8. SonarQube
+
+```bash
+docker compose -f docker-compose.sonar.yml up -d   # SonarQube + PostgreSQL on http://localhost:9000
+mvn -B verify                                       # produces target/site/jacoco/jacoco.xml
+mvn -B sonar:sonar
+```
+
+The scan reads the JaCoCo XML report and the exclusions configured in `pom.xml`
+(`CourseServiceApplication`, `config/**`).
+
+---
+
+## 9. CI (Jenkins)
+
+`Jenkinsfile` (declarative) implements: checkout → `mvn clean verify` → SonarQube analysis →
+quality gate → Docker build → (push on `main`) → compose smoke test, publishing the JUnit and
+JaCoCo reports. It expects a JDK tool named `jdk17`, a Maven tool named `maven-3.9`, a SonarQube
+server named `sonarqube`, and a `docker-registry` credential (only needed for pushes).
+
+---
+
+## 10. Reports
+
+| What | Where |
+|------|-------|
+| Test results | `target/surefire-reports/` |
+| Coverage (HTML) | `target/site/jacoco/index.html` |
+| Coverage (XML, for Sonar) | `target/site/jacoco/jacoco.xml` |
+| Mutation (optional) | `target/pit-reports/index.html` |
+| SonarQube dashboard | `http://localhost:9000` |
+
+Optional mutation testing:
+
+```bash
+mvn -Pmutation test-compile org.pitest:pitest-maven:mutationCoverage
+```
+
+---
+
+## 11. Project structure
+
+```
+course-service/
+├── Dockerfile                  # multi-stage, non-root runtime
+├── docker-compose.yml          # app + MySQL
+├── docker-compose.sonar.yml    # SonarQube + PostgreSQL
+├── Jenkinsfile
+├── pom.xml
+├── README.md
+├── .env.example
+└── src
+    ├── main
+    │   ├── java/com/eduplatform/course
+    │   │   ├── config/         # OpenAPI metadata
+    │   │   ├── controller/     # REST layer (DTOs only)
+    │   │   ├── dto/            # request/response records
+    │   │   ├── entity/         # Course, CourseStatus
+    │   │   ├── exception/      # domain exceptions + global handler
+    │   │   ├── mapper/         # entity <-> DTO
+    │   │   ├── repository/     # Spring Data JPA
+    │   │   └── service/        # business logic
+    │   └── resources/
+    │       ├── application.yml
+    │       └── schema.sql      # DDL (source of truth)
+    └── test
+        └── java/com/eduplatform/course
+            ├── support/        # shared Testcontainers setup
+            └── ...             # unit, web, repository and E2E tests
+```
