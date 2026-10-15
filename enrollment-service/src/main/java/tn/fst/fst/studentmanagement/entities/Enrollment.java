@@ -20,14 +20,6 @@ public class Enrollment {
     @Enumerated(EnumType.STRING)
     private Status status;
 
-    @ManyToOne
-    private Student student;
-
-    @ManyToOne
-    private Course course;
-
-
-
-
-
+    private Long studentId;
+    private Long courseId;
 }
