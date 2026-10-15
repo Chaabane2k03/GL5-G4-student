@@ -1,0 +1,220 @@
+# Full local integration stack: Eureka registry + 4 microservices + their MySQL databases.
+#
+#   docker compose up -d --build
+#   Eureka dashboard: http://localhost:8761
+#
+# Each service is built from its own Dockerfile and talks to its own MySQL container.
+# All services register themselves in Eureka through EUREKA_URL.
+name: gl5-g4-student
+
+services:
+  # ---------------------------------------------------------------- registry --
+  eureka-server:
+    build:
+      context: ./eureka-server
+      dockerfile: Dockerfile
+    image: gl5-g4-eureka-server:local
+    container_name: gl5-eureka-server
+    ports:
+      - "8761:8761"
+    networks:
+      - gl5-net
+    restart: unless-stopped
+
+  # ------------------------------------------------------------- course ------
+  course-db:
+    image: mysql:8.0
+    container_name: gl5-course-db
+    environment:
+      MYSQL_ROOT_PASSWORD: rootpass
+      MYSQL_DATABASE: course_db
+      MYSQL_USER: course_user
+      MYSQL_PASSWORD: course_pass
+    ports:
+      - "3308:3306"
+    volumes:
+      - course-db-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -u root -p\"$$MYSQL_ROOT_PASSWORD\" --silent"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    networks:
+      - gl5-net
+    restart: unless-stopped
+
+  course-service:
+    build:
+      context: ./course-service
+      dockerfile: Dockerfile
+      args:
+        SERVER_PORT: 8084
+    image: gl5-g4-course-service:local
+    container_name: gl5-course-service
+    depends_on:
+      course-db:
+        condition: service_healthy
+      eureka-server:
+        condition: service_started
+    environment:
+      SPRING_APP_NAME: course-service
+      EUREKA_URL: http://eureka-server:8761/eureka/
+      DB_HOST: course-db
+      DB_PORT: 3306
+      DB_NAME: course_db
+      DB_USER: course_user
+      DB_PASSWORD: course_pass
+      SERVER_PORT: 8084
+      JPA_DDL_AUTO: validate
+      SQL_INIT_MODE: always
+      MANAGEMENT_ENDPOINTS: health,info
+    ports:
+      - "8084:8084"
+    networks:
+      - gl5-net
+    restart: unless-stopped
+
+  # ----------------------------------------------------------- department ----
+  department-db:
+    image: mysql:8.4
+    container_name: gl5-department-db
+    environment:
+      MYSQL_DATABASE: departmentdb
+      MYSQL_USER: department
+      MYSQL_PASSWORD: department-dev-password
+      MYSQL_ROOT_PASSWORD: department-root-dev-password
+    ports:
+      - "3306:3306"
+    volumes:
+      - department-db-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -udepartment -p\"$$MYSQL_PASSWORD\" --silent"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 20s
+    networks:
+      - gl5-net
+    restart: unless-stopped
+
+  department-service:
+    build:
+      context: .
+      dockerfile: department-service/Dockerfile
+    image: gl5-g4-department-service:local
+    container_name: gl5-department-service
+    depends_on:
+      department-db:
+        condition: service_healthy
+      eureka-server:
+        condition: service_started
+    environment:
+      SERVER_PORT: 8082
+      EUREKA_URL: http://eureka-server:8761/eureka/
+      DB_URL: jdbc:mysql://department-db:3306/departmentdb
+      DB_USERNAME: department
+      DB_PASSWORD: department-dev-password
+    ports:
+      - "8082:8082"
+    networks:
+      - gl5-net
+    restart: unless-stopped
+
+  # ----------------------------------------------------------- enrollment ----
+  enrollment-db:
+    image: mysql:8
+    container_name: gl5-enrollment-db
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: enrollmentdb
+    ports:
+      - "3307:3306"
+    volumes:
+      - enrollment-db-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-proot"]
+      interval: 5s
+      retries: 20
+    networks:
+      - gl5-net
+    restart: unless-stopped
+
+  enrollment-service:
+    build:
+      context: ./enrollment-service
+      dockerfile: Dockerfile
+    image: gl5-g4-enrollment-service:local
+    container_name: gl5-enrollment-service
+    depends_on:
+      enrollment-db:
+        condition: service_healthy
+      eureka-server:
+        condition: service_started
+    environment:
+      SERVER_PORT: 8083
+      EUREKA_URL: http://eureka-server:8761/eureka/
+      DB_URL: jdbc:mysql://enrollment-db:3306/enrollmentdb
+      DB_USER: root
+      DB_PASSWORD: root
+    ports:
+      - "8083:8083"
+    networks:
+      - gl5-net
+    restart: unless-stopped
+
+  # -------------------------------------------------------------- student ----
+  student-db:
+    image: mysql:8.4
+    container_name: gl5-student-db
+    environment:
+      MYSQL_DATABASE: studentdb
+      MYSQL_USER: student
+      MYSQL_PASSWORD: student-dev-password
+      MYSQL_ROOT_PASSWORD: student-root-dev-password
+    ports:
+      - "3309:3306"
+    volumes:
+      - student-db-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -ustudent -p\"$$MYSQL_PASSWORD\" --silent"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 20s
+    networks:
+      - gl5-net
+    restart: unless-stopped
+
+  student-service:
+    build:
+      context: .
+      dockerfile: student-service/Dockerfile
+    image: gl5-g4-student-service:local
+    container_name: gl5-student-service
+    depends_on:
+      student-db:
+        condition: service_healthy
+      eureka-server:
+        condition: service_started
+    environment:
+      SERVER_PORT: 8085
+      EUREKA_URL: http://eureka-server:8761/eureka/
+      DB_URL: jdbc:mysql://student-db:3306/studentdb
+      DB_USERNAME: student
+      DB_PASSWORD: student-dev-password
+    ports:
+      - "8085:8085"
+    networks:
+      - gl5-net
+    restart: unless-stopped
+
+networks:
+  gl5-net:
+    driver: bridge
+
+volumes:
+  course-db-data:
+  department-db-data:
+  enrollment-db-data:
+  student-db-data:
