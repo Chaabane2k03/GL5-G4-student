@@ -11,17 +11,22 @@ spring:
   cloud:
     config:
       server:
+        # Decrypt {cipher}... values server-side before serving them to clients,
+        # so services never need to know the symmetric key.
+        encrypt:
+          enabled: true
         git:
           uri: ${CONFIG_REPO_URI:https://github.com/Chaabane2k03/config-repo.git}
           default-label: main
           clone-on-start: true
           force-pull: true
-          timeout: 5
+          timeout: 30
           username: ${GIT_USER:}
           password: ${GIT_TOKEN:}
 
 encrypt:
   key: ${ENCRYPT_KEY}
+  salt: ${ENCRYPT_SALT:deadbeef}
 
 management:
   endpoints:

@@ -118,21 +118,32 @@ to submit a request. Keep form login and logout disabled, require authentication
 for all endpoints, and use CSRF tokens for state-changing HTTP methods.
 
 GET requests such as config and health reads do not require a CSRF token.
-Authenticated POST requests such as `/encrypt` and `/decrypt` do: without a
-valid token the server returns `403 Forbidden`; without valid credentials it
-returns `401 Unauthorized`. Integration tests verify both rejection without a
-token and success with a valid token.
+State-changing POST requests such as `/encrypt` and `/decrypt` do: without a
+valid token the server returns `403 Forbidden` (this is checked before
+authentication); when the token is valid but the credentials are not, it
+returns `401 Unauthorized`. Integration tests verify rejection without a token,
+rejection with bad credentials, and success with a valid token.
+
+To keep that `403` intact, the security filter chain leaves container `ERROR`
+dispatches unauthenticated (`dispatcherTypeMatchers(DispatcherType.ERROR)`).
+When CSRF rejects a request it forwards to `/error`; without this, the internal
+forward would be treated as a new unauthenticated request and the `403` would
+be reported as a `401`. Direct client requests to `/error` are still plain
+`REQUEST` dispatches and continue to require authentication.
 
 ### Steps for clients that need to POST
 
 1. Keep CSRF enabled in Spring Security. Do not work around a `403` by
    disabling CSRF or by making the POST endpoint public.
-2. Provide an authenticated GET endpoint that returns the current session's
-   CSRF token. **This Config Server does not currently expose a CSRF-token
-   endpoint**, so a client cannot yet obtain a token from its public API.
-   Implement a small protected endpoint that accepts Spring Security's
-   `CsrfToken` and returns its token value and header name, or use a browser
-   integration that obtains the token from the server.
+2. Call the authenticated `GET /csrf` endpoint to obtain the current session's
+   CSRF token. It returns JSON such as:
+
+   ```json
+   {"headerName":"X-CSRF-TOKEN","token":"<value>"}
+   ```
+
+   The endpoint requires the same Basic Auth credentials as the POST, and
+   creates the session that the token belongs to.
 3. Have the client call that token endpoint with the same Basic Auth
    credentials it will use for the POST, and retain the session cookie returned
    by the server.
@@ -143,9 +154,8 @@ token and success with a valid token.
 5. Verify that a POST without the token returns `403`, and that the same
    authenticated request with the session cookie and valid token succeeds.
 
-For example, **after** implementing an authenticated `/csrf` endpoint that
-returns JSON like `{"headerName":"X-CSRF-TOKEN","token":"<value>"}`, a curl
-client can preserve its session cookie and send the returned token as follows:
+For example, a curl client can preserve its session cookie and send the
+returned token as follows:
 
 ```sh
 curl -u "$CONFIG_USER:$CONFIG_PASSWORD" \

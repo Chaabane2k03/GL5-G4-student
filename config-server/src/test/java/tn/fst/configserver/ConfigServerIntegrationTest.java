@@ -3,11 +3,15 @@ package tn.fst.configserver;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.httpBasic;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import java.util.stream.Stream;
+
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -20,6 +24,9 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.client.TestRestTemplate;
 import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.context.ConfigurableApplicationContext;
+import org.springframework.http.HttpEntity;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -65,11 +72,18 @@ class ConfigServerIntegrationTest {
     @Autowired
     MockMvc mockMvc;
 
+    @Autowired
+    ObjectMapper objectMapper;
+
     @LocalServerPort
     int port;
 
     private TestRestTemplate authenticated() {
         return restTemplate.withBasicAuth(USER, PASSWORD);
+    }
+
+    private String csrfToken(JsonNode body) {
+        return body.get("token").asText();
     }
 
     @Test
@@ -98,6 +112,34 @@ class ConfigServerIntegrationTest {
                         .contentType(MediaType.TEXT_PLAIN)
                         .content("top-secret"))
                 .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void realServerRejectsAuthenticatedRequestWithoutCsrfTokenWithForbidden() {
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.TEXT_PLAIN);
+
+        ResponseEntity<String> response = authenticated().exchange("/encrypt", HttpMethod.POST,
+                new HttpEntity<>("top-secret", headers), String.class);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+    }
+
+    @Test
+    void realServerReturnsUnauthorizedForValidCsrfTokenWithBadCredentials() throws Exception {
+        ResponseEntity<String> csrfResponse = authenticated().getForEntity("/csrf", String.class);
+        String token = objectMapper.readTree(csrfResponse.getBody()).get("token").asText();
+        String cookie = csrfResponse.getHeaders().getFirst(HttpHeaders.SET_COOKIE).split(";", 2)[0];
+
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.TEXT_PLAIN);
+        headers.add(HttpHeaders.COOKIE, cookie);
+        headers.add("X-CSRF-TOKEN", token);
+
+        ResponseEntity<String> response = restTemplate.withBasicAuth(USER, "wrong-password")
+                .exchange("/encrypt", HttpMethod.POST, new HttpEntity<>("top-secret", headers), String.class);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
     }
 
     static Stream<Arguments> serviceProfiles() {
@@ -165,6 +207,42 @@ class ConfigServerIntegrationTest {
                                 .content(encrypted))
                         .andExpect(status().isOk())
                         .andExpect(content().string("top-secret"));
+    }
+
+    @Test
+    void csrfEndpointRequiresAuthentication() {
+        ResponseEntity<String> response = restTemplate.getForEntity("/csrf", String.class);
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
+    }
+
+    @Test
+    void csrfTokenFromEndpointEnablesCookieBasedEncryptAndDecryptPosts() throws Exception {
+        ResponseEntity<String> csrfResponse = authenticated().getForEntity("/csrf", String.class);
+        assertThat(csrfResponse.getStatusCode()).isEqualTo(HttpStatus.OK);
+
+        JsonNode body = objectMapper.readTree(csrfResponse.getBody());
+        assertThat(body.get("headerName").asText()).isEqualTo("X-CSRF-TOKEN");
+        String token = csrfToken(body);
+        assertThat(token).isNotBlank();
+
+        String sessionCookie = csrfResponse.getHeaders().getFirst(HttpHeaders.SET_COOKIE);
+        assertThat(sessionCookie).contains("JSESSIONID");
+        String cookie = sessionCookie.split(";", 2)[0];
+
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.TEXT_PLAIN);
+        headers.add(HttpHeaders.COOKIE, cookie);
+        headers.add("X-CSRF-TOKEN", token);
+
+        ResponseEntity<String> encrypted = authenticated().exchange("/encrypt", HttpMethod.POST,
+                new HttpEntity<>("top-secret", headers), String.class);
+        assertThat(encrypted.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(encrypted.getBody()).isNotBlank();
+
+        ResponseEntity<String> decrypted = authenticated().exchange("/decrypt", HttpMethod.POST,
+                new HttpEntity<>(encrypted.getBody(), headers), String.class);
+        assertThat(decrypted.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(decrypted.getBody()).isEqualTo("top-secret");
     }
 
     @Test
