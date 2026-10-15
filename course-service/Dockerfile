@@ -21,11 +21,14 @@ ARG SERVER_PORT=8084
 ARG APP_USER=app
 ARG APP_GROUP=app
 ARG JAR_NAME=app.jar
+# Context path served by the Config Server (course-service.properties).
+ARG CONTEXT_PATH=/course
 
 ENV SERVER_PORT=${SERVER_PORT} \
     APP_USER=${APP_USER} \
     APP_GROUP=${APP_GROUP} \
     JAR_NAME=${JAR_NAME} \
+    CONTEXT_PATH=${CONTEXT_PATH} \
     JAVA_OPTS=""
 
 # Run as an unprivileged user.
@@ -38,6 +41,6 @@ USER $APP_USER
 EXPOSE ${SERVER_PORT}
 
 HEALTHCHECK --interval=15s --timeout=5s --start-period=45s --retries=10 \
-    CMD wget -qO- "http://localhost:${SERVER_PORT}/actuator/health" | grep -q '"status":"UP"' || exit 1
+    CMD wget -qO- "http://localhost:${SERVER_PORT}${CONTEXT_PATH}/actuator/health" | grep -q '"status":"UP"' || exit 1
 
 ENTRYPOINT ["sh", "-c", "java $JAVA_OPTS -jar $JAR_NAME"]

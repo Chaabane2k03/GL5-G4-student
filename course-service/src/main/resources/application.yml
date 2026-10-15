@@ -3,23 +3,16 @@ server:
 
 spring:
   application:
-    name: ${SPRING_APP_NAME:course-service}
-  datasource:
-    url: "jdbc:mysql://${DB_HOST:localhost}:${DB_PORT:3308}/${DB_NAME:course_db}?${DB_JDBC_PARAMS:useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC}"
-    username: ${DB_USER:course_user}
-    password: ${DB_PASSWORD:course_pass}
-  jpa:
-    hibernate:
-      ddl-auto: ${JPA_DDL_AUTO:validate}
-    open-in-view: ${JPA_OPEN_IN_VIEW:false}
-    properties:
-      hibernate:
-        jdbc:
-          time_zone: ${HIBERNATE_JDBC_TIME_ZONE:UTC}
-  sql:
-    init:
-      mode: ${SQL_INIT_MODE:always}
-      schema-locations: ${SQL_SCHEMA_LOCATIONS:classpath:schema.sql}
+    name: course-service
+  # All environment-specific settings (datasource, jpa, eureka, context-path)
+  # are served by the Config Server from the private config-repo Git repository.
+  config:
+    import: optional:configserver:${CONFIG_SERVER_URL:http://localhost:8071}
+  cloud:
+    config:
+      username: ${CONFIG_USER:config}
+      password: ${CONFIG_PASSWORD:change-me}
+      fail-fast: false
 
 management:
   endpoints:
@@ -30,29 +23,3 @@ management:
     health:
       probes:
         enabled: ${MANAGEMENT_HEALTH_PROBES:true}
-
-eureka:
-  client:
-    service-url:
-      defaultZone: ${EUREKA_URL:http://localhost:8761/eureka/}
-  instance:
-    prefer-ip-address: ${EUREKA_PREFER_IP_ADDRESS:true}
-    hostname: ${EUREKA_INSTANCE_HOSTNAME:${HOSTNAME:localhost}}
-    lease-renewal-interval-in-seconds: ${EUREKA_LEASE_RENEWAL_INTERVAL_SECONDS:30}
-    lease-expiration-duration-in-seconds: ${EUREKA_LEASE_EXPIRATION_DURATION_SECONDS:90}
-
-springdoc:
-  swagger-ui:
-    path: ${SPRINGDOC_SWAGGER_UI_PATH:/swagger-ui.html}
-  api-docs:
-    path: ${SPRINGDOC_API_DOCS_PATH:/v3/api-docs}
-
-app:
-  openapi:
-    title: ${APP_OPENAPI_TITLE:Course Service API}
-    version: ${APP_OPENAPI_VERSION:v1}
-    description: "${APP_OPENAPI_DESCRIPTION:REST API to manage courses: create, read, update, archive and activate. Standalone service; departments are referenced by id only.}"
-
-logging:
-  level:
-    root: ${LOG_LEVEL_ROOT:INFO}
