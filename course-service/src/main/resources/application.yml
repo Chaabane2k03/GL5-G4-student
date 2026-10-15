@@ -38,6 +38,8 @@ eureka:
   instance:
     prefer-ip-address: ${EUREKA_PREFER_IP_ADDRESS:true}
     hostname: ${EUREKA_INSTANCE_HOSTNAME:${HOSTNAME:localhost}}
+    lease-renewal-interval-in-seconds: ${EUREKA_LEASE_RENEWAL_INTERVAL_SECONDS:30}
+    lease-expiration-duration-in-seconds: ${EUREKA_LEASE_EXPIRATION_DURATION_SECONDS:90}
 
 springdoc:
   swagger-ui:

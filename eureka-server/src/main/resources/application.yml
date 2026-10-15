@@ -11,4 +11,14 @@ eureka:
     register-with-eureka: false
     fetch-registry: false
   server:
-    enable-self-preservation: false
+    # Self-preservation protects the registry from network blips: when the
+    # number of heartbeats drops below the expected threshold the server stops
+    # evicting instances instead of removing still-healthy services.
+    enable-self-preservation: ${EUREKA_SELF_PRESERVATION:true}
+    # How often the EvictionTask runs: it expires leases AND decides whether
+    # self-preservation mode should be entered/left (default 60s).
+    eviction-interval-timer-in-ms: ${EUREKA_EVICTION_INTERVAL_MS:60000}
+    # Expected percentage of heartbeats per minute before self-preservation kicks in.
+    renewal-percent-threshold: ${EUREKA_RENEWAL_PERCENT_THRESHOLD:0.85}
+    # How often the expected heartbeats-per-minute threshold is recalculated (15min).
+    renewal-threshold-update-interval-ms: ${EUREKA_RENEWAL_THRESHOLD_UPDATE_MS:900000}
