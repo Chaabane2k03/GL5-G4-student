@@ -1,0 +1,5 @@
+.git
+.m2
+.env
+**/target/*
+!student-service/target/student-service.jar

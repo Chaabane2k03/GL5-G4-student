@@ -2,10 +2,8 @@ package tn.fst.studentmanagement.entities;
 
 import jakarta.persistence.*;
 import lombok.*;
-import org.springframework.scheduling.annotation.EnableScheduling;
 
 import java.time.LocalDate;
-import java.util.List;
 
 @Entity
 @Getter
@@ -24,9 +22,5 @@ public class Student {
     private LocalDate dateOfBirth;
     private String address;
 
-    @ManyToOne
-    private Department department;
-
-    @OneToMany(mappedBy = "student")
-    private List<Enrollment> enrollments;
+    private Long departmentId;
 }
