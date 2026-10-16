@@ -1,15 +1,18 @@
 package com.eduplatform.course.service;
 
+import com.eduplatform.course.client.DepartmentClient;
 import com.eduplatform.course.dto.CourseRequest;
 import com.eduplatform.course.dto.CourseResponse;
 import com.eduplatform.course.dto.PageResponse;
 import com.eduplatform.course.entity.Course;
 import com.eduplatform.course.entity.CourseStatus;
 import com.eduplatform.course.exception.CourseNotFoundException;
+import com.eduplatform.course.exception.DepartmentNotFoundException;
 import com.eduplatform.course.exception.DuplicateCourseCodeException;
 import com.eduplatform.course.exception.InvalidRequestException;
 import com.eduplatform.course.mapper.CourseMapper;
 import com.eduplatform.course.repository.CourseRepository;
+import feign.FeignException;
 import jakarta.persistence.criteria.CriteriaBuilder;
 import jakarta.persistence.criteria.CriteriaQuery;
 import jakarta.persistence.criteria.Path;
@@ -55,13 +58,16 @@ class CourseServiceImplTest {
     @Mock
     private CourseRepository courseRepository;
 
+    @Mock
+    private DepartmentClient departmentClient;
+
     private final CourseMapper courseMapper = new CourseMapper();
 
     private CourseServiceImpl service;
 
     @BeforeEach
     void setUp() {
-        service = new CourseServiceImpl(courseRepository, courseMapper);
+        service = new CourseServiceImpl(courseRepository, courseMapper, departmentClient);
     }
 
     private static CourseRequest request(String code) {
@@ -157,6 +163,19 @@ class CourseServiceImplTest {
             assertThatThrownBy(() -> service.create(req))
                     .isInstanceOf(DataIntegrityViolationException.class)
                     .isNotInstanceOf(DuplicateCourseCodeException.class);
+        }
+
+        @Test
+        void shouldThrowDepartmentNotFoundWhenCreateReferencesMissingDepartment() {
+            when(courseRepository.existsByCode("CS101")).thenReturn(false);
+            when(departmentClient.getDepartment(1L)).thenThrow(mock(FeignException.NotFound.class));
+
+            CourseRequest req = request("CS101");
+            assertThatThrownBy(() -> service.create(req))
+                    .isInstanceOf(DepartmentNotFoundException.class)
+                    .hasMessageContaining("1");
+
+            verify(courseRepository, never()).saveAndFlush(any(Course.class));
         }
     }
 
@@ -262,6 +281,20 @@ class CourseServiceImplTest {
             CourseResponse response = service.update(5L, request("CS101"));
 
             assertThat(response.status()).isEqualTo(CourseStatus.ARCHIVED);
+        }
+
+        @Test
+        void shouldThrowDepartmentNotFoundWhenUpdateReferencesMissingDepartment() {
+            when(courseRepository.findById(5L)).thenReturn(Optional.of(course(5L, "CS101", CourseStatus.ACTIVE)));
+            when(courseRepository.existsByCodeAndIdNot("CS101", 5L)).thenReturn(false);
+            when(departmentClient.getDepartment(1L)).thenThrow(mock(FeignException.NotFound.class));
+
+            CourseRequest req = request("CS101");
+            assertThatThrownBy(() -> service.update(5L, req))
+                    .isInstanceOf(DepartmentNotFoundException.class)
+                    .hasMessageContaining("1");
+
+            verify(courseRepository, never()).saveAndFlush(any(Course.class));
         }
     }
 

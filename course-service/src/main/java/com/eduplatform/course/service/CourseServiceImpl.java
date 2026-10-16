@@ -1,15 +1,18 @@
 package com.eduplatform.course.service;
 
+import com.eduplatform.course.client.DepartmentClient;
 import com.eduplatform.course.dto.CourseRequest;
 import com.eduplatform.course.dto.CourseResponse;
 import com.eduplatform.course.dto.PageResponse;
 import com.eduplatform.course.entity.Course;
 import com.eduplatform.course.entity.CourseStatus;
 import com.eduplatform.course.exception.CourseNotFoundException;
+import com.eduplatform.course.exception.DepartmentNotFoundException;
 import com.eduplatform.course.exception.DuplicateCourseCodeException;
 import com.eduplatform.course.exception.InvalidRequestException;
 import com.eduplatform.course.mapper.CourseMapper;
 import com.eduplatform.course.repository.CourseRepository;
+import feign.FeignException;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
@@ -36,10 +39,13 @@ public class CourseServiceImpl implements CourseService {
 
     private final CourseRepository courseRepository;
     private final CourseMapper courseMapper;
+    private final DepartmentClient departmentClient;
 
-    public CourseServiceImpl(CourseRepository courseRepository, CourseMapper courseMapper) {
+    public CourseServiceImpl(CourseRepository courseRepository, CourseMapper courseMapper,
+                             DepartmentClient departmentClient) {
         this.courseRepository = courseRepository;
         this.courseMapper = courseMapper;
+        this.departmentClient = departmentClient;
     }
 
     @Override
@@ -49,6 +55,7 @@ public class CourseServiceImpl implements CourseService {
         if (courseRepository.existsByCode(code)) {
             throw new DuplicateCourseCodeException(code);
         }
+        requireDepartmentExists(request.departmentId());
         Course course = courseMapper.toEntity(request);
         course.setCode(code);
         course.setStatus(CourseStatus.ACTIVE);
@@ -95,6 +102,7 @@ public class CourseServiceImpl implements CourseService {
         if (courseRepository.existsByCodeAndIdNot(code, id)) {
             throw new DuplicateCourseCodeException(code);
         }
+        requireDepartmentExists(request.departmentId());
         courseMapper.updateEntity(course, request);
         course.setCode(code);
         return courseMapper.toResponse(save(course));
@@ -135,6 +143,19 @@ public class CourseServiceImpl implements CourseService {
 
     private Course findById(Long id) {
         return courseRepository.findById(id).orElseThrow(() -> new CourseNotFoundException(id));
+    }
+
+    /**
+     * Cross-service integrity check: a course must belong to an existing department. The
+     * department-service answers 404 for an unknown id, which Feign surfaces as
+     * {@link FeignException.NotFound} and is translated into a domain exception (404).
+     */
+    private void requireDepartmentExists(Long departmentId) {
+        try {
+            departmentClient.getDepartment(departmentId);
+        } catch (FeignException.NotFound ex) {
+            throw new DepartmentNotFoundException(departmentId);
+        }
     }
 
     static String normalizeCode(String code) {

@@ -5,6 +5,7 @@ import com.eduplatform.course.dto.CourseResponse;
 import com.eduplatform.course.dto.PageResponse;
 import com.eduplatform.course.entity.CourseStatus;
 import com.eduplatform.course.exception.CourseNotFoundException;
+import com.eduplatform.course.exception.DepartmentNotFoundException;
 import com.eduplatform.course.exception.DuplicateCourseCodeException;
 import com.eduplatform.course.exception.InvalidRequestException;
 import com.eduplatform.course.service.CourseService;
@@ -112,6 +113,18 @@ class CourseControllerTest {
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.status").value(409))
                 .andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.containsString("CS101")));
+    }
+
+    @Test
+    void createShouldReturn404WhenDepartmentMissing() throws Exception {
+        when(courseService.create(any(CourseRequest.class))).thenThrow(new DepartmentNotFoundException(2L));
+
+        mockMvc.perform(post("/api/courses")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(json(validRequest())))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.status").value(404))
+                .andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.containsString("2")));
     }
 
     @Test

@@ -1,5 +1,6 @@
 package com.eduplatform.course;
 
+import com.eduplatform.course.client.DepartmentClient;
 import com.eduplatform.course.dto.CourseRequest;
 import com.eduplatform.course.dto.CourseResponse;
 import com.eduplatform.course.entity.CourseStatus;
@@ -15,6 +16,7 @@ import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -34,6 +36,14 @@ class CourseServiceApplicationTests {
 
     @Autowired
     private CourseRepository courseRepository;
+
+    /**
+     * The department-service is not part of this test context, so the Feign client is
+     * replaced with a mock. Returning {@code null} means "department exists" to the
+     * course service, keeping the E2E flow focused on course persistence.
+     */
+    @MockitoBean
+    private DepartmentClient departmentClient;
 
     /**
      * These tests commit real rows over HTTP (no test transaction), so clean the shared
