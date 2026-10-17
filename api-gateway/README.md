@@ -55,7 +55,8 @@ header (`localhost:8072`) reaches the backend. This is what makes the generated 
 
 The gateway serves its own document and aggregates the four backend documents in a single UI.
 Each definition is fetched **through the gateway routes**, so this works without the browser
-needing direct access to the backend ports.
+needing direct access to the backend ports. The service selector, tags and operations are
+sorted alphabetically, and endpoint groups start collapsed to keep the page easy to scan.
 
 | Documentation                  | URL                                          |
 | ------------------------------ | -------------------------------------------- |
@@ -70,9 +71,12 @@ Configuration (`application.properties`):
 
 ```properties
 springdoc.swagger-ui.path=/swagger-ui.html
-springdoc.swagger-ui.urls[0].name=Department Service
-springdoc.swagger-ui.urls[0].url=/department/v3/api-docs
+springdoc.swagger-ui.urls[0].name=Course Service
+springdoc.swagger-ui.urls[0].url=/course/v3/api-docs
 # ... one entry per service
+springdoc.swagger-ui.tagsSorter=alpha
+springdoc.swagger-ui.operationsSorter=alpha
+springdoc.swagger-ui.docExpansion=none
 ```
 
 Because `PreserveHostHeader` keeps `Host: localhost:8072`, each backend's springdoc computes
@@ -134,5 +138,14 @@ Tests:
 bash ./mvnw -f api-gateway/pom.xml verify
 ```
 
-The context-load test disables the Config Server and Eureka
-(`src/test/resources/application.properties`), so it needs no external services.
+The `test` profile (`src/test/resources/application-test.properties`) disables the Config
+Server and Eureka, so tests need no external services. The suite covers:
+
+- `GatewayRouteConfigurationTest` — the routing table (`Path=/<ctx>/**` → `lb://<service-id>`),
+  the disabled Eureka auto-locator, the `PreserveHostHeader` default filter and the
+  gateway's OpenAPI metadata.
+- `GatewayRoutingIntegrationTest` — boots the gateway with a stub backend advertised through
+  `SimpleDiscoveryClient` and verifies real forwarding: context path and query string are
+  preserved, the original `Host` reaches the backend, unknown paths return `404`, and the
+  aggregated Swagger UI, `/v3/api-docs`, `/v3/api-docs/swagger-config` and actuator
+  endpoints are served.
