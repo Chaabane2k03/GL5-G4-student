@@ -1,0 +1,6 @@
+.git
+.m2
+.env
+**/target/*
+!api-gateway/target/api-gateway.jar
+
