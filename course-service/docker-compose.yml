@@ -1,3 +1,5 @@
+name: course-service-app
+
 services:
   course-db:
     image: ${MYSQL_IMAGE:-mysql:8.0}

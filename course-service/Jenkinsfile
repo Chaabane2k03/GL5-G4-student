@@ -13,6 +13,7 @@ pipeline {
         string(name: 'SONAR_PROJECT_KEY', defaultValue: 'course-service', description: 'SonarQube project key')
         string(name: 'JDK_TOOL', defaultValue: 'jdk17', description: 'Jenkins JDK tool name')
         string(name: 'MAVEN_TOOL', defaultValue: 'maven-3.9', description: 'Jenkins Maven tool name')
+        string(name: 'SERVICE_DIR', defaultValue: 'course-service', description: 'Path (within the repository) to the service root')
         string(name: 'SERVICE_PORT', defaultValue: '8084', description: 'Port the service is published on')
         string(name: 'HEALTHCHECK_HOST', defaultValue: 'host.docker.internal', description: 'Host used to reach the service for the smoke test')
         string(name: 'DOCKER_REGISTRY_CREDENTIAL', defaultValue: 'docker-registry', description: 'Jenkins credential id for the Docker registry (used only when pushing on main)')
@@ -23,6 +24,7 @@ pipeline {
         IMAGE_TAG                  = "${env.BUILD_NUMBER}"
         SONAR_SERVER               = "${params.SONAR_SERVER ?: 'sonarqube'}"
         SONAR_PROJECT_KEY          = "${params.SONAR_PROJECT_KEY ?: 'course-service'}"
+        SERVICE_DIR                = "${params.SERVICE_DIR ?: 'course-service'}"
         SERVICE_PORT               = "${params.SERVICE_PORT ?: '8084'}"
         HEALTHCHECK_HOST           = "${params.HEALTHCHECK_HOST ?: 'host.docker.internal'}"
         DOCKER_REGISTRY_CREDENTIAL = "${params.DOCKER_REGISTRY_CREDENTIAL ?: 'docker-registry'}"
@@ -42,16 +44,20 @@ pipeline {
 
         stage('Build, Test & Coverage') {
             steps {
-                // Runs unit, slice (@WebMvcTest/@DataJpaTest) and full E2E tests,
-                // then enforces the JaCoCo thresholds (LINE >= 90%, BRANCH >= 80%).
-                sh 'mvn -B clean verify'
+                dir(env.SERVICE_DIR) {
+                    // Runs unit, slice (@WebMvcTest/@DataJpaTest) and full E2E tests,
+                    // then enforces the JaCoCo thresholds (LINE >= 90%, BRANCH >= 80%).
+                    sh 'mvn -B clean verify'
+                }
             }
         }
 
         stage('Static Analysis (SonarQube)') {
             steps {
-                withSonarQubeEnv("${SONAR_SERVER}") {
-                    sh "mvn -B sonar:sonar -Dsonar.projectKey=${SONAR_PROJECT_KEY} -Dsonar.host.url=${SONAR_HOST_URL} -Dsonar.token=${SONAR_AUTH_TOKEN}"
+                dir(env.SERVICE_DIR) {
+                    withSonarQubeEnv("${SONAR_SERVER}") {
+                        sh "mvn -B sonar:sonar -Dsonar.projectKey=${SONAR_PROJECT_KEY} -Dsonar.host.url=${SONAR_HOST_URL} -Dsonar.token=${SONAR_AUTH_TOKEN}"
+                    }
                 }
             }
         }
@@ -66,7 +72,9 @@ pipeline {
 
         stage('Docker Build') {
             steps {
-                sh "docker build -t ${IMAGE_NAME}:${IMAGE_TAG} -t ${IMAGE_NAME}:latest ."
+                dir(env.SERVICE_DIR) {
+                    sh "docker build -t ${IMAGE_NAME}:${IMAGE_TAG} -t ${IMAGE_NAME}:latest ."
+                }
             }
         }
 
@@ -76,23 +84,27 @@ pipeline {
                 branch 'main'
             }
             steps {
-                withCredentials([usernamePassword(
-                        credentialsId: "${DOCKER_REGISTRY_CREDENTIAL}",
-                        usernameVariable: 'REGISTRY_USER',
-                        passwordVariable: 'REGISTRY_PASSWORD')]) {
-                    sh '''
-                        echo "$REGISTRY_PASSWORD" | docker login -u "$REGISTRY_USER" --password-stdin
-                        docker push "${IMAGE_NAME}:${IMAGE_TAG}"
-                        docker push "${IMAGE_NAME}:latest"
-                    '''
+                dir(env.SERVICE_DIR) {
+                    withCredentials([usernamePassword(
+                            credentialsId: "${DOCKER_REGISTRY_CREDENTIAL}",
+                            usernameVariable: 'REGISTRY_USER',
+                            passwordVariable: 'REGISTRY_PASSWORD')]) {
+                        sh '''
+                            echo "$REGISTRY_PASSWORD" | docker login -u "$REGISTRY_USER" --password-stdin
+                            docker push "${IMAGE_NAME}:${IMAGE_TAG}"
+                            docker push "${IMAGE_NAME}:latest"
+                        '''
+                    }
                 }
             }
         }
 
         stage('Smoke Test (compose)') {
             steps {
-                sh "SERVICE_IMAGE=${IMAGE_NAME}:latest docker compose up -d --no-build"
-                sh "for i in \$(seq 1 30); do curl -fsS http://${HEALTHCHECK_HOST}:${SERVICE_PORT}/actuator/health && break || sleep 5; done"
+                dir(env.SERVICE_DIR) {
+                    sh "SERVICE_IMAGE=${IMAGE_NAME}:latest docker compose -f docker-compose.yml -f docker-compose.ci.yml up -d --no-build"
+                    sh "for i in \$(seq 1 30); do curl -fsS http://${HEALTHCHECK_HOST}:${SERVICE_PORT}/actuator/health && break || sleep 5; done"
+                }
             }
         }
     }
@@ -101,8 +113,10 @@ pipeline {
         always {
             junit allowEmptyResults: true, testResults: '**/target/surefire-reports/*.xml'
             jacoco execPattern: '**/target/jacoco.exec'
-            archiveArtifacts artifacts: 'target/*.jar', allowEmptyArchive: true
-            sh 'docker compose down -v || true'
+            archiveArtifacts artifacts: '**/target/*.jar', allowEmptyArchive: true
+            dir(env.SERVICE_DIR) {
+                sh 'docker compose -f docker-compose.yml -f docker-compose.ci.yml down -v || true'
+            }
         }
         success {
             echo "Build ${env.BUILD_NUMBER} succeeded."
