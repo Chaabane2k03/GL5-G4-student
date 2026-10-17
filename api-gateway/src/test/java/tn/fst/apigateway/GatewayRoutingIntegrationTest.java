@@ -34,6 +34,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @AutoConfigureWebTestClient
 @ActiveProfiles("test")
+@org.springframework.context.annotation.Import(TestSecurityConfig.class)
 class GatewayRoutingIntegrationTest {
 
     private static final List<String> SERVICE_IDS = List.of(
@@ -71,6 +72,16 @@ class GatewayRoutingIntegrationTest {
 
     @LocalServerPort
     private int gatewayPort;
+
+    @org.junit.jupiter.api.BeforeEach
+    void setUpAuth() {
+        if (restTemplate.getRestTemplate().getInterceptors().isEmpty()) {
+            restTemplate.getRestTemplate().getInterceptors().add((request, body, execution) -> {
+                request.getHeaders().setBearerAuth(TestSecurityConfig.ADMIN_TOKEN);
+                return execution.execute(request, body);
+            });
+        }
+    }
 
     @Test
     void forwardsDepartmentRequestsToTheBackendWithThePathPreserved() {
@@ -118,6 +129,7 @@ class GatewayRoutingIntegrationTest {
     @Test
     void returnsNotFoundForAnUnmappedPath() {
         webTestClient.get().uri("/unknown/whatever")
+                .headers(h -> h.setBearerAuth(TestSecurityConfig.ADMIN_TOKEN))
                 .exchange()
                 .expectStatus().isNotFound();
     }
@@ -172,6 +184,7 @@ class GatewayRoutingIntegrationTest {
                 .expectBody().jsonPath("$.status").isEqualTo("UP");
 
         webTestClient.get().uri("/actuator/gateway/routes")
+                .headers(h -> h.setBearerAuth(TestSecurityConfig.ADMIN_TOKEN))
                 .exchange()
                 .expectStatus().isOk()
                 .expectBody(String.class)

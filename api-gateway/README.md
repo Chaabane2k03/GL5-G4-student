@@ -49,9 +49,66 @@ header (`localhost:8072`) reaches the backend. This is what makes the generated 
 - A running **Config Server** for the standard configuration (the import is optional, so the
   gateway still starts without it, using the defaults in `application.properties`).
 
+## 3. Security (OAuth2 / OIDC & RBAC)
+
+The gateway acts as an **OAuth2 Resource Server** validating JWT access tokens issued by an
+OAuth2 / OpenID Connect Authorization Server (e.g., Keycloak, Auth0, Okta).
+
+### Role-Based Access Control (RBAC) Matrix
+
+Granted authorities are extracted by [`GrantedAuthoritiesExtractor`](src/main/java/tn/fst/apigateway/security/GrantedAuthoritiesExtractor.java),
+which automatically maps standard `SCOPE_*` scopes as well as Keycloak realm roles (`realm_access.roles`),
+client roles scoped exclusively to the gateway client (`resource_access.api-gateway.roles`), and normalized Keycloak groups (`/admins` -> `ROLE_ADMIN`).
+
+| Domain / Path | Method | Required Role | Description |
+|---|---|---|---|
+| `/actuator/health/**`, `/actuator/info` | Any | **Public** | Docker / Kubernetes liveness & readiness probes |
+| Preflight CORS (`OPTIONS /**`) | `OPTIONS` | **Public** | Always permitted without token for frontend SPAs |
+| Swagger UI & Docs (`/swagger-ui/**`, `/v3/api-docs/**`) | Any | **Public** *(dev)* / `ROLE_ADMIN` *(prod)* | Configurable via `gateway.security.swagger-public` |
+| `/actuator/gateway/**` | Any | `ROLE_ADMIN` | Runtime route inspection and administration |
+| `/department/**` | `POST`, `PUT`, `DELETE` | `ROLE_ADMIN` | Departments managed strictly by administrators |
+| `/department/**` | `GET` | **Authenticated** | Read access for authenticated users |
+| `/course/**` | `POST`, `PUT` | `ROLE_ADMIN`, `ROLE_TEACHER` | Course creation/editing by teachers or admins |
+| `/course/**` | `DELETE` | `ROLE_ADMIN` | Course deletion restricted to admins |
+| `/course/**` | `GET` | **Authenticated** | Read access for authenticated users |
+| `/enrollment/**` | `POST` | `ROLE_ADMIN`, `ROLE_STUDENT` | Course enrollment by students or admins |
+| `/enrollment/**` | `PUT`, `DELETE` | `ROLE_ADMIN` | Altering/canceling enrollments restricted to admins |
+| `/enrollment/**` | `GET` | **Authenticated** | Read access for authenticated users |
+| `/student/**` | `POST` | `ROLE_ADMIN` | Student registration by administrators |
+| `/student/**` | `PUT` | `ROLE_ADMIN`, `ROLE_STUDENT` | Profile updates by students or admins |
+| `/student/**` | `DELETE` | `ROLE_ADMIN` | Student deletion restricted to admins |
+| `/student/**` | `GET` | **Authenticated** | Read access for authenticated users |
+
+> [!NOTE]
+> Fine-grained record-level access control (e.g., verifying that a student only accesses their own grades/records) cannot be handled solely at the gateway path level and belongs inside the downstream services using JWT claims (`sub`, `preferred_username`).
+
+### Configuration Properties
+
+```properties
+# OAuth2 Resource Server (JWT)
+spring.security.oauth2.resourceserver.jwt.issuer-uri=${KEYCLOAK_ISSUER_URI:http://localhost:8080/realms/gl5}
+spring.security.oauth2.resourceserver.jwt.jwk-set-uri=${JWK_SET_URI:}
+
+# Gateway Security & Audience Settings
+gateway.security.client-id=api-gateway
+gateway.security.audience=api-gateway
+gateway.security.swagger-public=${GATEWAY_SWAGGER_PUBLIC:true}
+gateway.cors.allowed-origins=*
+```
+
+### Authenticating Requests
+
+Pass the JWT token in the `Authorization` header:
+
+```sh
+curl -H "Authorization: Bearer <your-jwt-token>" http://localhost:8072/course/api/courses
+```
+
+Or click the **Authorize** button in Swagger UI (`http://localhost:8072/swagger-ui.html`) to paste your Bearer token.
+
 ---
 
-## 3. Swagger / OpenAPI
+## 4. Swagger / OpenAPI
 
 The gateway serves its own document and aggregates the four backend documents in a single UI.
 Each definition is fetched **through the gateway routes**, so this works without the browser
@@ -149,3 +206,9 @@ Server and Eureka, so tests need no external services. The suite covers:
   preserved, the original `Host` reaches the backend, unknown paths return `404`, and the
   aggregated Swagger UI, `/v3/api-docs`, `/v3/api-docs/swagger-config` and actuator
   endpoints are served.
+- `GatewaySecurityIntegrationTest` — verifies OAuth2 JWT authentication and RBAC authorization
+  rules: public endpoints are accessible without credentials, unauthenticated or invalid
+  token requests return `401 Unauthorized`, restricted actions (DELETE, runtime route
+  management) reject non-admins with `403 Forbidden`, and valid tokens are authenticated
+  and routed.
+

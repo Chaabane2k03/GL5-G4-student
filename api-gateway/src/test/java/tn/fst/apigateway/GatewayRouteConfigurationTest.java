@@ -21,6 +21,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  */
 @SpringBootTest
 @ActiveProfiles("test")
+@org.springframework.context.annotation.Import(TestSecurityConfig.class)
 class GatewayRouteConfigurationTest {
 
     private static final Map<String, String> EXPECTED_ROUTES = Map.of(
