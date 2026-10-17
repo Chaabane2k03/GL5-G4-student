@@ -9,6 +9,13 @@ private Git repository, services register with **Eureka**, each service owns its
 
 ```
                         +---------------------+
+                        |    API Gateway      |  :8072   (single entry point)
+                        | /department         |  routes to every service below
+                        | /course /enrollment |
+                        | /student            |
+                        +----------+----------+
+                                   | lb://<service-id> (resolved via Eureka)
+                        +----------+----------+
                         |   Config Server     |  :8071  (Basic Auth)
                         |  Git-backed config  |<---------+
                         +---------------------+          |
@@ -43,7 +50,7 @@ Server, so the services never see the symmetric key.
   (`https://github.com/Chaabane2k03/config-repo.git`) and a **Personal Access Token**
   with read access to it.
 - The project's **`ENCRYPT_KEY`** (see [Configuration secrets](#configuration-secrets)).
-- Enough free RAM for the containers (MySQL + 6 JVMs); ~4 GB is comfortable.
+- Enough free RAM for the containers (4 MySQL + 7 JVMs); ~4 GB is comfortable.
 
 > All images are built from source inside Docker, so a local JDK/Maven installation is
 > **not** required to run the stack.
@@ -96,9 +103,10 @@ ENCRYPT_KEY=the-project-shared-encryption-key
 docker compose up -d --build
 ```
 
-The first run pulls the MySQL/Maven/JRE base images and builds six service images, so it
+The first run pulls the MySQL/Maven/JRE base images and builds seven service images, so it
 can take several minutes. Compose starts the databases and the Config Server first
-(waits until they are healthy), then starts Eureka and the four business services.
+(waits until they are healthy), then starts Eureka and the four business services, and
+finally the API Gateway.
 
 ### 4. Check that everything is up
 
@@ -113,6 +121,7 @@ All containers should report `(healthy)` once the start-up grace periods elapse
 
 | Service             | Container               | Port   | Context path    |
 | ------------------- | ----------------------- | ------ | --------------- |
+| API Gateway         | `gl5-api-gateway`       | `8072` | `/` (routes below) |
 | Config Server       | `gl5-config-server`     | `8071` | `/`             |
 | Eureka Server       | `gl5-eureka-server`     | `8761` | `/`             |
 | Department Service  | `gl5-department-service`| `8082` | `/department`   |
@@ -123,15 +132,33 @@ All containers should report `(healthy)` once the start-up grace periods elapse
 MySQL databases are also published on the host: course `3308`, department `3306`,
 enrollment `3307`, student `3309`.
 
+The API Gateway is the recommended single entry point. It exposes each service under its
+own context path and resolves the backing instances through Eureka (`lb://<service-id>`):
+
+| Gateway path      | Backend             |
+| ----------------- | ------------------- |
+| `/department/**`  | department-service  |
+| `/course/**`      | course-service      |
+| `/enrollment/**`  | enrollment-service  |
+| `/student/**`     | student-service     |
+
 ### Verify
 
 ```sh
-# Eureka dashboard (browser):      http://localhost:8761
-# Service health (through gateway): all return {"status":"UP"}
+# Eureka dashboard (browser):       http://localhost:8761
+# Swagger UI (browser):             http://localhost:8072/swagger-ui.html
+# Service health (direct):          all return {"status":"UP"}
 curl http://localhost:8082/department/actuator/health
 curl http://localhost:8083/enrollment/actuator/health
 curl http://localhost:8084/course/actuator/health
 curl http://localhost:8085/student/actuator/health
+
+# Same endpoints through the API Gateway
+curl http://localhost:8072/department/actuator/health
+curl http://localhost:8072/course/actuator/health
+
+# Gateway health (no context path)
+curl http://localhost:8072/actuator/health
 
 # Config Server (Basic Auth required)
 curl -u "$CONFIG_USER:$CONFIG_PASSWORD" http://localhost:8071/actuator/health
@@ -140,20 +167,43 @@ curl -u "$CONFIG_USER:$CONFIG_PASSWORD" http://localhost:8071/actuator/health
 ### Example API calls
 
 ```sh
-# List resources
+# Through the API Gateway (single entry point)
+curl http://localhost:8072/department/api/departments
+curl http://localhost:8072/course/api/courses
+curl http://localhost:8072/student/students/getAllStudents
+curl http://localhost:8072/enrollment/Enrollment/getAllEnrollment
+
+# Or directly against each service (same paths, different port)
 curl http://localhost:8082/department/api/departments
 curl http://localhost:8084/course/api/courses
 curl http://localhost:8085/student/students/getAllStudents
 curl http://localhost:8083/enrollment/Enrollment/getAllEnrollment
 
 # Create a department
-curl -X POST http://localhost:8082/department/api/departments \
+curl -X POST http://localhost:8072/department/api/departments \
   -H "Content-Type: application/json" \
   -d '{"name":"Informatique","code":"INF"}'
 ```
 
-Interactive API docs (Swagger UI) are available under each service's context path, e.g.
-`http://localhost:8084/course/swagger-ui/index.html`.
+## Swagger / OpenAPI
+
+Every backend service serves its own documentation under its context path
+(Swagger UI at `/swagger-ui.html`, spec at `/v3/api-docs`), and the API Gateway provides a
+single aggregated Swagger UI:
+
+| Documentation                    | URL                                                       |
+| -------------------------------- | --------------------------------------------------------- |
+| **All services (via gateway)**   | `http://localhost:8072/swagger-ui.html`                    |
+| Department (direct)              | `http://localhost:8082/department/swagger-ui.html`         |
+| Enrollment (direct)              | `http://localhost:8083/enrollment/swagger-ui.html`         |
+| Course (direct)                  | `http://localhost:8084/course/swagger-ui.html`             |
+| Student (direct)                 | `http://localhost:8085/student/swagger-ui.html`            |
+| Gateway spec                     | `http://localhost:8072/v3/api-docs`                        |
+
+The gateway UI exposes a definition selector listing the four backend services; their
+documents are fetched through the gateway itself (`/department/v3/api-docs`, …). Requests
+sent with **Try it out** therefore go through the gateway route, not directly to the
+service. See [`api-gateway/README.md`](./api-gateway/README.md) for details.
 
 ## Reading configuration from the Config Server
 
@@ -208,6 +258,7 @@ docker compose down -v
 | Services exit with `Could not resolve placeholder` or DB connection errors | `ENCRYPT_KEY` does not match the key used to encrypt the config repository, so `{cipher}` values cannot be decrypted. Use the shared project key. |
 | Services return `401`/`Connection refused` to the Config Server | `CONFIG_USER`/`CONFIG_PASSWORD` must be identical in `config-server/.env` (they are reused by every service). |
 | A service is `unhealthy` but the app is running | Health checks use the context path (e.g. `/course/actuator/health`). Allow the ~60 s start-up grace period before investigating. |
+| Requests to `http://localhost:8072/<service>/...` return `503 Service Unavailable` | The gateway could not resolve a healthy instance. Wait ~30 s after start-up (Eureka registration interval) or check the target service in the Eureka dashboard. |
 | Build fails for a service | Make sure you used `docker compose up -d --build` (never pass `--no-build`); all services build from source. |
 
 ## Project layout
@@ -216,6 +267,7 @@ docker compose down -v
 .
 ├── config-server/       # Centralized Config Server (Git backend, encrypted values)
 ├── eureka-server/       # Service registry
+├── api-gateway/         # Single entry point + Swagger UI aggregation (routes below)
 ├── department-service/  # Department CRUD API      (context path /department)
 ├── enrollment-service/  # Enrollment CRUD API       (context path /enrollment)
 ├── course-service/      # Course CRUD API           (context path /course)
@@ -225,5 +277,6 @@ docker compose down -v
 ```
 
 Configuration for each service/profile lives in the separate private repository
-`config-repo`, for example `course-service.properties`,
-`course-service-docker.properties`, `student-service-dev.properties`, and so on.
+`config-repo`, for example `api-gateway.properties`, `api-gateway-docker.properties`,
+`course-service.properties`, `course-service-docker.properties`,
+`student-service-dev.properties`, and so on.
