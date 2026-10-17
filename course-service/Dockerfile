@@ -9,8 +9,9 @@ FROM ${MAVEN_IMAGE} AS build
 WORKDIR /workspace
 
 COPY pom.xml .
+RUN mvn -B -q dependency:go-offline -DskipTests
 COPY src ./src
-RUN --mount=type=cache,target=/root/.m2 mvn -B -q clean package -DskipTests
+RUN mvn -B -q clean package -DskipTests
 
 # ---- Runtime stage ----
 FROM ${JRE_IMAGE}
