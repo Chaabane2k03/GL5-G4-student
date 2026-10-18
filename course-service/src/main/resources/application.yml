@@ -1,18 +1,24 @@
 server:
   port: ${SERVER_PORT:8084}
+  # Graceful shutdown: on SIGTERM the app stops accepting new requests, lets
+  # in-flight requests finish (up to the timeout), then exits.
+  shutdown: graceful
 
 spring:
   application:
     name: course-service
   # All environment-specific settings (datasource, jpa, eureka, context-path)
   # are served by the Config Server from the private config-repo Git repository.
-  config:
-    import: optional:configserver:${CONFIG_SERVER_URL:http://localhost:8071}
+  # NOTE: spring.config.import is in the guarded document at the bottom of this
+  # file (on-profile "!kubernetes") so the kubernetes profile never contacts
+  # the Config Server; every other profile keeps today's behaviour.
   cloud:
     config:
       username: ${CONFIG_USER:config}
       password: ${CONFIG_PASSWORD:change-me}
       fail-fast: false
+  lifecycle:
+    timeout-per-shutdown-phase: ${SHUTDOWN_TIMEOUT:30s}
 
 management:
   endpoints:
@@ -23,3 +29,17 @@ management:
     health:
       probes:
         enabled: ${MANAGEMENT_HEALTH_PROBES:true}
+
+---
+# Config Server import, active for every profile EXCEPT kubernetes.
+# The kubernetes profile runs without a Config Server (in-cluster config is
+# supplied by the Deployment env vars instead). Profile-specific documents
+# (application-kubernetes.yml) are loaded too late to disable an import
+# declared in the main document above, so the import itself must be
+# conditional: with SPRING_PROFILES_ACTIVE=kubernetes this document is
+# skipped and no config-server call is ever attempted.
+spring:
+  config:
+    activate:
+      on-profile: "!kubernetes"
+    import: "optional:configserver:${CONFIG_SERVER_URL:http://localhost:8071}"

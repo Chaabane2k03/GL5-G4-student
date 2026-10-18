@@ -1,10 +1,27 @@
 
 server:
   port: 8761
+  # Graceful shutdown: on SIGTERM the app stops accepting new requests, lets
+  # in-flight requests finish (up to the timeout), then exits.
+  shutdown: graceful
 
 spring:
   application:
     name: eureka-server
+  lifecycle:
+    timeout-per-shutdown-phase: ${SHUTDOWN_TIMEOUT:30s}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: ${MANAGEMENT_ENDPOINTS:health,info}
+  endpoint:
+    health:
+      # Liveness/readiness probes for container orchestrators:
+      # /actuator/health/liveness and /actuator/health/readiness.
+      probes:
+        enabled: ${MANAGEMENT_HEALTH_PROBES:true}
 
 eureka:
   client:
