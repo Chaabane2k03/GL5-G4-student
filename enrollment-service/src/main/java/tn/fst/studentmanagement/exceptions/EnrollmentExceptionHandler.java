@@ -17,4 +17,9 @@ public class EnrollmentExceptionHandler {
     public ProblemDetail handleCourseNotFound(CourseNotFoundException exception) {
         return ProblemDetail.forStatusAndDetail(HttpStatus.NOT_FOUND, exception.getMessage());
     }
+
+    @ExceptionHandler(EnrollmentNotFoundException.class)
+    public ProblemDetail handleEnrollmentNotFound(EnrollmentNotFoundException exception) {
+        return ProblemDetail.forStatusAndDetail(HttpStatus.NOT_FOUND, exception.getMessage());
+    }
 }
