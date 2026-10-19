@@ -33,18 +33,33 @@ services:
       course-db:
         condition: service_healthy
     environment:
-      SPRING_APP_NAME: ${SPRING_APP_NAME:-course-service}
-      DB_HOST: ${DB_SERVICE_NAME:-course-db}
-      DB_PORT: ${DB_CONTAINER_PORT:-3306}
-      DB_NAME: ${DB_NAME:-course_db}
-      DB_USER: ${DB_USER:-course_user}
-      DB_PASSWORD: ${DB_PASSWORD:-course_pass}
-      DB_JDBC_PARAMS: "${DB_JDBC_PARAMS:-useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC}"
       SERVER_PORT: ${SERVER_PORT:-8084}
-      JPA_DDL_AUTO: ${JPA_DDL_AUTO:-validate}
-      JPA_OPEN_IN_VIEW: ${JPA_OPEN_IN_VIEW:-false}
-      SQL_INIT_MODE: ${SQL_INIT_MODE:-always}
-      LOG_LEVEL_ROOT: ${LOG_LEVEL_ROOT:-INFO}
+      # ---- Standalone mode -------------------------------------------------------
+      # On develop the app resolves its datasource, JPA settings and context-path from
+      # the Config Server (see config-server/src/main/resources/config/course-service*.properties),
+      # so they are supplied directly here instead, and the remote clients are switched
+      # off. That is what lets `docker compose up -d --build` run this service on its
+      # own, with no Config Server or Eureka. The full platform stack (Config Server +
+      # Eureka + all services) is defined by the repository root's docker-compose.yml.
+      SPRING_CLOUD_CONFIG_ENABLED: "false"
+      EUREKA_CLIENT_ENABLED: "false"
+      # No department-service in this stack, so the cross-service department check is
+      # switched off (departments are referenced by id only). Platform mode keeps the
+      # default strict, where an unreachable department-service yields 503, not a write.
+      APP_DEPARTMENT_VALIDATION: "off"
+      SPRING_DATASOURCE_URL: "jdbc:mysql://${DB_SERVICE_NAME:-course-db}:${DB_CONTAINER_PORT:-3306}/${DB_NAME:-course_db}?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC"
+      SPRING_DATASOURCE_USERNAME: ${DB_USER:-course_user}
+      SPRING_DATASOURCE_PASSWORD: ${DB_PASSWORD:-course_pass}
+      SPRING_JPA_HIBERNATE_DDL_AUTO: ${JPA_DDL_AUTO:-validate}
+      SPRING_SQL_INIT_MODE: ${SQL_INIT_MODE:-always}
+      SPRING_SQL_INIT_SCHEMA_LOCATIONS: "classpath:schema.sql"
+      # Context path: application.yml never sets server.servlet.context-path and the
+      # Config Server (which would set /course) is disabled, so Spring Boot serves the
+      # root context on its own. The image bakes ENV CONTEXT_PATH=/course (its default
+      # HEALTHCHECK probes ${SERVER_PORT}${CONTEXT_PATH}/actuator/health, which is what
+      # platform mode needs), so it must be overridden to the empty string here —
+      # otherwise the healthcheck hits /course/actuator/health and reports 500.
+      CONTEXT_PATH: ""
       MANAGEMENT_ENDPOINTS: "${MANAGEMENT_ENDPOINTS:-health,info}"
       APP_OPENAPI_TITLE: ${APP_OPENAPI_TITLE:-Course Service API}
       APP_OPENAPI_VERSION: ${APP_OPENAPI_VERSION:-v1}

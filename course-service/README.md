@@ -15,6 +15,8 @@ no foreign keys or joins to other services, so it can be deployed and evolved in
 | Language / runtime | Java 17                                             |
 | Framework          | Spring Boot 3.5.16 (Web, Data JPA, Validation)      |
 | Database           | MySQL 8.0 (schema managed by `schema.sql`)          |
+| Configuration      | Config Server (`develop`) or environment variables   |
+| Inter-service      | OpenFeign → department-service (by id only)          |
 | API docs           | springdoc-openapi 2.9.1 (Swagger UI)                |
 | Testing            | JUnit 5, Mockito, MockMvc, Testcontainers           |
 | Coverage           | JaCoCo (LINE ≥ 90 %, BRANCH ≥ 80 %)                  |
@@ -35,26 +37,40 @@ no foreign keys or joins to other services, so it can be deployed and evolved in
 
 ## 3. Configuration
 
-All environment-specific values are externalised: `application.yml` / `docker-compose*.yml` carry
-safe defaults and every value can be overridden through environment variables. Copy `.env.example`
-to `.env` (git-ignored) to override the Docker Compose defaults.
+The service runs in one of two modes.
+
+**Platform (default on `develop`)** — configuration comes from the **Config Server**. `application.yml`
+only sets `server.port` and `spring.config.import: optional:configserver:...`; the datasource, JPA
+settings, `server.servlet.context-path` (`/course`) and the Eureka registration are served by the
+Config Server. Using this mode therefore needs `SPRING_PROFILES_ACTIVE=docker` and `CONFIG_SERVER_URL`
+(plus `EUREKA_URL`) — which is exactly what the repository root's `docker-compose.yml` provides.
+
+**Standalone** — no Config Server and no Eureka. `docker-compose.yml` in this directory switches both
+clients off and injects the datasource and `schema.sql` directly, so the service starts on its own
+with nothing but MySQL.
+
+Environment variables always take precedence (OS env → Config Server → bundled `application.yml`),
+so every value in the table below can still be overridden per environment.
 
 | Group             | Variables                                                                                                     | Defaults |
 |-------------------|---------------------------------------------------------------------------------------------------------------|----------|
 | Database (app)    | `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER`, `DB_PASSWORD`, `DB_JDBC_PARAMS`                                     | `localhost`, `3308`, `course_db`, `course_user`, `course_pass`, `useSSL=false&…` |
-| Application       | `SERVER_PORT`, `SPRING_APP_NAME`, `JPA_DDL_AUTO`, `JPA_OPEN_IN_VIEW`, `SQL_INIT_MODE`, `SQL_SCHEMA_LOCATIONS`, `LOG_LEVEL_ROOT`, `MANAGEMENT_ENDPOINTS`, `MANAGEMENT_HEALTH_PROBES`, `HIBERNATE_JDBC_TIME_ZONE` | `8084`, `course-service`, `validate`, `false`, `always`, … |
+| Application       | `SERVER_PORT`, `SPRING_APP_NAME`, `JPA_DDL_AUTO`, `JPA_OPEN_IN_VIEW`, `SQL_INIT_MODE`, `SQL_SCHEMA_LOCATIONS`, `LOG_LEVEL_ROOT`, `MANAGEMENT_ENDPOINTS`, `MANAGEMENT_HEALTH_PROBES`, `HIBERNATE_JDBC_TIME_ZONE`, `APP_DEPARTMENT_VALIDATION` | `8084`, `course-service`, `validate`, `false`, `always`, …, `strict` |
 | OpenAPI / Swagger | `SPRINGDOC_SWAGGER_UI_PATH`, `SPRINGDOC_API_DOCS_PATH`, `APP_OPENAPI_TITLE`, `APP_OPENAPI_VERSION`, `APP_OPENAPI_DESCRIPTION` | `/swagger-ui.html`, `/v3/api-docs`, … |
 | MySQL container   | `MYSQL_IMAGE`, `MYSQL_ROOT_PASSWORD`, `DB_CONTAINER_NAME`, `DB_CONTAINER_PORT`, `DB_HOST_PORT`                   | `mysql:8.0`, `rootpass`, … |
 | Service container | `SERVICE_IMAGE`, `SERVICE_CONTAINER_NAME`                                                                       | `course-service:latest`, `course-service` |
 | SonarQube stack   | `SONAR_PORT`, `SONAR_IMAGE`, `SONAR_CONTAINER_NAME`, `SONAR_DB_IMAGE`, `SONAR_DB_CONTAINER_NAME`, `SONAR_DB_USER`, `SONAR_DB_PASSWORD`, `SONAR_DB_NAME`, `SONAR_JDBC_URL`, `SONAR_ES_BOOTSTRAP_CHECKS_DISABLE` | `9000`, `sonarqube:10.6-community`, … |
-
-The full annotated inventory lives in [`.env.example`](.env.example).
 
 Key behaviour:
 
 - Hibernate `ddl-auto=validate` — the schema is **never** generated from the entities.
 - `schema.sql` is applied on startup (single source of truth for the DDL: unique `code`,
   CHECK `credits` 1–30, CHECK `status` in `ACTIVE`/`ARCHIVED`).
+- Department integrity check — `APP_DEPARTMENT_VALIDATION`: `strict` (default) verifies
+  `departmentId` against `department-service` on every create/update, returning `404` for an
+  unknown department and `503` (no write) when that service cannot be reached. `off` never
+  calls it at all — used by the standalone stack, where departments are referenced by id only.
+  Any other value behaves like `strict`, so a mistyped value fails safe.
 - Actuator exposes `health` and `info`; Swagger at `/swagger-ui.html`, spec at `/v3/api-docs`
   (all configurable).
 - Business/API-contract constants (max page size, allowed sort fields, default sort, MySQL
@@ -66,14 +82,21 @@ Key behaviour:
 
 ## 4. Running
 
-### 4.1 Full stack with Docker Compose (recommended)
+### 4.1 Standalone with Docker Compose (recommended)
 
 ```bash
 docker compose up -d --build
 ```
 
-This starts MySQL (`course-db`, host port `3308`) and the service (`course-service`, port `8084`).
-Both containers have health checks; the service waits for the database to be healthy.
+This starts MySQL (`course-db`, host port `3308`) and the service (`course-service`, port `8084`)
+in standalone mode. Both containers have health checks; the service waits for the database to be
+healthy before it starts.
+
+> **What works standalone:** reading courses, creating and updating them, and `/actuator/health`,
+> with no other service running. This stack sets `APP_DEPARTMENT_VALIDATION=off`, so `departmentId`
+> is stored exactly as given and `department-service` is never contacted — there is none here.
+> Platform mode keeps the default `strict`: `departmentId` is verified, an unknown department
+> returns `404`, and an unreachable `department-service` returns `503` rather than writing.
 
 | Endpoint          | URL                                       |
 |-------------------|-------------------------------------------|
@@ -89,10 +112,16 @@ docker compose down       # keep data
 docker compose down -v    # also delete the DB volume
 ```
 
+> To run the service as part of the real platform (Config Server + Eureka + department-service),
+> use the repository root's `docker-compose.yml` instead — it starts the whole stack.
+
 ### 4.2 Locally against your own MySQL
 
 ```bash
-# provision a database/user matching the defaults, then:
+# provision a database/user matching the defaults, then start in standalone mode:
+SPRING_CLOUD_CONFIG_ENABLED=false EUREKA_CLIENT_ENABLED=false APP_DEPARTMENT_VALIDATION=off \
+SPRING_DATASOURCE_URL="jdbc:mysql://localhost:3308/course_db?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC" \
+SPRING_DATASOURCE_USERNAME=course_user SPRING_DATASOURCE_PASSWORD=course_pass \
 mvn spring-boot:run
 ```
 
@@ -104,10 +133,10 @@ Base path: `/api/courses`. All bodies are JSON. Errors share one uniform shape.
 
 | Method   | Path                         | Description                          | Success | Errors        |
 |----------|------------------------------|--------------------------------------|---------|---------------|
-| `POST`   | `/api/courses`               | Create a course (starts `ACTIVE`)    | `201`   | `400`, `409`  |
+| `POST`   | `/api/courses`               | Create a course (starts `ACTIVE`)    | `201`   | `400`, `404`, `409`, `503` |
 | `GET`    | `/api/courses/{id}`          | Get a course by id                   | `200`   | `404`         |
 | `GET`    | `/api/courses`               | List courses (filter + paging)       | `200`   | `400`         |
-| `PUT`    | `/api/courses/{id}`          | Update mutable fields (status kept)  | `200`   | `400`, `404`, `409` |
+| `PUT`    | `/api/courses/{id}`          | Update mutable fields (status kept)  | `200`   | `400`, `404`, `409`, `503` |
 | `DELETE` | `/api/courses/{id}`          | Archive a course (idempotent)        | `204`   | `404`         |
 | `PATCH`  | `/api/courses/{id}/activate` | Activate a course (idempotent)       | `200`   | `404`         |
 
@@ -218,9 +247,14 @@ The scan reads the JaCoCo XML report and the exclusions configured in `pom.xml`
 ## 9. CI (Jenkins)
 
 `Jenkinsfile` (declarative) implements: checkout → `mvn clean verify` → SonarQube analysis →
-quality gate → Docker build → (push on `main`) → compose smoke test, publishing the JUnit and
-JaCoCo reports. It expects a JDK tool named `jdk17`, a Maven tool named `maven-3.9`, a SonarQube
-server named `sonarqube`, and a `docker-registry` credential (only needed for pushes).
+quality gate → Docker build → compose smoke test, publishing the JUnit and JaCoCo reports. The
+smoke test starts the service from the image just built and fails the build if it never reports
+`UP` on `/actuator/health`.
+
+It expects a JDK tool named `jdk17`, a Maven tool named `maven-3.9` (both declared in
+`jenkins/casc.yaml`) and a SonarQube server named `sonarqube`; everything else is overridable
+through *Build with Parameters*. The Jenkins controller used for this pipeline is described by
+`docker-compose.jenkins.yml` and configured by `jenkins/casc.yaml`.
 
 ---
 
@@ -247,12 +281,14 @@ mvn -Pmutation test-compile org.pitest:pitest-maven:mutationCoverage
 ```
 course-service/
 ├── Dockerfile                  # multi-stage, non-root runtime
-├── docker-compose.yml          # app + MySQL
+├── Dockerfile.jenkins          # Jenkins controller image (local CI)
+├── docker-compose.yml          # standalone stack: app + MySQL
+├── docker-compose.jenkins.yml  # local Jenkins controller
 ├── docker-compose.sonar.yml    # SonarQube + PostgreSQL
 ├── Jenkinsfile
+├── jenkins/casc.yaml           # Configuration as Code for the controller
 ├── pom.xml
 ├── README.md
-├── .env.example
 └── src
     ├── main
     │   ├── java/com/eduplatform/course

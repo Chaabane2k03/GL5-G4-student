@@ -18,8 +18,8 @@ import java.util.List;
  * Translates exceptions into the uniform {@link ErrorResponse} body.
  *
  * <p>Status mapping: validation / malformed JSON / param type mismatch / invalid request
- * parameters -&gt; 400, not found -&gt; 404, duplicate code -&gt; 409, anything else -&gt; 500
- * (generic message, no stack trace leaked).</p>
+ * parameters -&gt; 400, not found -&gt; 404, duplicate code -&gt; 409, dependency unavailable
+ * -&gt; 503 (retryable), anything else -&gt; 500 (generic message, no stack trace leaked).</p>
  */
 @RestControllerAdvice
 public class GlobalExceptionHandler {
@@ -39,6 +39,12 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(DuplicateCourseCodeException.class)
     public ResponseEntity<ErrorResponse> handleDuplicate(DuplicateCourseCodeException ex, HttpServletRequest request) {
         return build(HttpStatus.CONFLICT, ex.getMessage(), request, List.of());
+    }
+
+    @ExceptionHandler(DepartmentServiceUnavailableException.class)
+    public ResponseEntity<ErrorResponse> handleDepartmentUnavailable(DepartmentServiceUnavailableException ex,
+                                                                     HttpServletRequest request) {
+        return build(HttpStatus.SERVICE_UNAVAILABLE, ex.getMessage(), request, List.of());
     }
 
     @ExceptionHandler(InvalidRequestException.class)

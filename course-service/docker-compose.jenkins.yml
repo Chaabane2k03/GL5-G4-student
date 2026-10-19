@@ -1,6 +1,7 @@
 # Standalone Jenkins controller for the course-service pipeline.
 #   docker compose -f docker-compose.jenkins.yml up -d --build
-# UI: http://localhost:${JENKINS_PORT:-8080}  (login admin / admin)
+# UI: http://localhost:${JENKINS_PORT:-8090}  (login admin / admin, override with
+# JENKINS_ADMIN_USER / JENKINS_ADMIN_PASSWORD)
 #
 # It reaches the SonarQube stack started by docker-compose.sonar.yml through
 # host.docker.internal:9000 and builds images with the host Docker daemon
@@ -21,9 +22,10 @@ services:
       HOME: /var/jenkins_home
       CASC_JENKINS_CONFIG: /var/jenkins_home/casc_configs
       CASC_JENKINS_CONFIG_WATCH: "true"
-      JAVA_OPTS: >-
-        -Djenkins.install.runSetupWizard=false
-        -Dhudson.plugins.git.GitSCM.ALLOW_LOCAL_CHECKOUT=true
+      JAVA_OPTS: "-Djenkins.install.runSetupWizard=false"
+      # Login for the local Jenkins UI (see jenkins/casc.yaml).
+      JENKINS_ADMIN_USER: ${JENKINS_ADMIN_USER:-admin}
+      JENKINS_ADMIN_PASSWORD: ${JENKINS_ADMIN_PASSWORD:-admin}
       SONAR_TOKEN: ${SONAR_TOKEN:-}
       JENKINS_EXTERNAL_URL: ${JENKINS_EXTERNAL_URL:-http://localhost:8090/}
       # Docker-outside-of-Docker: pipelines use the mounted host socket, and
@@ -41,7 +43,6 @@ services:
       - maven-repo:/var/jenkins_home/.m2
       - ./jenkins/casc.yaml:/var/jenkins_home/casc_configs/casc.yaml:ro
       - /var/run/docker.sock:/var/run/docker.sock
-      - ./.jenkins-scm:/src/course-service:ro
     extra_hosts:
       - "host.docker.internal:host-gateway"
     restart: unless-stopped
