@@ -6,6 +6,7 @@ import com.eduplatform.course.dto.PageResponse;
 import com.eduplatform.course.entity.CourseStatus;
 import com.eduplatform.course.exception.CourseNotFoundException;
 import com.eduplatform.course.exception.DepartmentNotFoundException;
+import com.eduplatform.course.exception.DepartmentServiceUnavailableException;
 import com.eduplatform.course.exception.DuplicateCourseCodeException;
 import com.eduplatform.course.exception.InvalidRequestException;
 import com.eduplatform.course.service.CourseService;
@@ -124,6 +125,19 @@ class CourseControllerTest {
                         .content(json(validRequest())))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.status").value(404))
+                .andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.containsString("2")));
+    }
+
+    @Test
+    void createShouldReturn503WhenDepartmentServiceUnavailable() throws Exception {
+        when(courseService.create(any(CourseRequest.class)))
+                .thenThrow(new DepartmentServiceUnavailableException(2L));
+
+        mockMvc.perform(post("/api/courses")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(json(validRequest())))
+                .andExpect(status().isServiceUnavailable())
+                .andExpect(jsonPath("$.status").value(503))
                 .andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.containsString("2")));
     }
 

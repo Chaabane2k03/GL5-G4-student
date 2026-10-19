@@ -2,42 +2,41 @@ pipeline {
     agent any
 
     options {
+        timeout(time: 45, unit: 'MINUTES')
         disableConcurrentBuilds()
         buildDiscarder(logRotator(numToKeepStr: '10'))
         skipDefaultCheckout(true)
     }
 
+    // Single source of defaults for this pipeline. Override them via "Build with Parameters".
+    // Tool names and the SonarQube project key are configuration, not build inputs, and live in
+    // jenkins/casc.yaml and pom.xml respectively.
     parameters {
-        string(name: 'IMAGE_NAME', defaultValue: 'course-service', description: 'Docker image repository name')
-        string(name: 'SONAR_SERVER', defaultValue: 'sonarqube', description: 'Jenkins SonarQube server name')
-        string(name: 'SONAR_PROJECT_KEY', defaultValue: 'course-service', description: 'SonarQube project key')
-        string(name: 'JDK_TOOL', defaultValue: 'jdk17', description: 'Jenkins JDK tool name')
-        string(name: 'MAVEN_TOOL', defaultValue: 'maven-3.9', description: 'Jenkins Maven tool name')
-        string(name: 'SERVICE_DIR', defaultValue: 'course-service', description: 'Path (within the repository) to the service root')
-        string(name: 'SERVICE_PORT', defaultValue: '8084', description: 'Port the service is published on')
+        string(name: 'SERVICE_DIR',      defaultValue: 'course-service',       description: 'Path (within the repository) to the service root')
+        string(name: 'IMAGE_NAME',       defaultValue: 'course-service',       description: 'Docker image repository name')
+        string(name: 'SONAR_SERVER',     defaultValue: 'sonarqube',            description: 'Jenkins SonarQube server name')
+        string(name: 'SERVICE_PORT',     defaultValue: '8084',                 description: 'Port the service is published on')
         string(name: 'HEALTHCHECK_HOST', defaultValue: 'host.docker.internal', description: 'Host used to reach the service for the smoke test')
-        string(name: 'DOCKER_REGISTRY_CREDENTIAL', defaultValue: 'docker-registry', description: 'Jenkins credential id for the Docker registry (used only when pushing on main)')
     }
 
     environment {
-        IMAGE_NAME                 = "${params.IMAGE_NAME ?: 'course-service'}"
-        IMAGE_TAG                  = "${env.BUILD_NUMBER}"
-        SONAR_SERVER               = "${params.SONAR_SERVER ?: 'sonarqube'}"
-        SONAR_PROJECT_KEY          = "${params.SONAR_PROJECT_KEY ?: 'course-service'}"
-        SERVICE_DIR                = "${params.SERVICE_DIR ?: 'course-service'}"
-        SERVICE_PORT               = "${params.SERVICE_PORT ?: '8084'}"
-        HEALTHCHECK_HOST           = "${params.HEALTHCHECK_HOST ?: 'host.docker.internal'}"
-        DOCKER_REGISTRY_CREDENTIAL = "${params.DOCKER_REGISTRY_CREDENTIAL ?: 'docker-registry'}"
+        SERVICE_DIR      = "${params.SERVICE_DIR}"
+        IMAGE_NAME       = "${params.IMAGE_NAME}"
+        IMAGE_TAG        = "${env.BUILD_NUMBER}"
+        SONAR_SERVER     = "${params.SONAR_SERVER}"
+        SERVICE_PORT     = "${params.SERVICE_PORT}"
+        HEALTHCHECK_HOST = "${params.HEALTHCHECK_HOST}"
     }
 
     tools {
-        jdk "${params.JDK_TOOL ?: 'jdk17'}"
-        maven "${params.MAVEN_TOOL ?: 'maven-3.9'}"
+        jdk 'jdk17'
+        maven 'maven-3.9'
     }
 
     stages {
         stage('Checkout') {
             steps {
+                deleteDir()
                 checkout scm
             }
         }
@@ -55,8 +54,10 @@ pipeline {
         stage('Static Analysis (SonarQube)') {
             steps {
                 dir(env.SERVICE_DIR) {
-                    withSonarQubeEnv("${SONAR_SERVER}") {
-                        sh "mvn -B sonar:sonar -Dsonar.projectKey=${SONAR_PROJECT_KEY} -Dsonar.host.url=${SONAR_HOST_URL} -Dsonar.token=${SONAR_AUTH_TOKEN}"
+                    // The project key and the scanner host come from pom.xml and the SonarQube
+                    // server configuration, so only the credentials are injected here.
+                    withSonarQubeEnv("${env.SONAR_SERVER}") {
+                        sh 'mvn -B sonar:sonar'
                     }
                 }
             }
@@ -64,6 +65,8 @@ pipeline {
 
         stage('Quality Gate') {
             steps {
+                // The scan reports to the configured server, which calls back through the
+                // Jenkins webhook; this stage waits for that verdict instead of polling.
                 timeout(time: 1, unit: 'HOURS') {
                     waitForQualityGate abortPipeline: true
                 }
@@ -73,28 +76,7 @@ pipeline {
         stage('Docker Build') {
             steps {
                 dir(env.SERVICE_DIR) {
-                    sh "docker build -t ${IMAGE_NAME}:${IMAGE_TAG} -t ${IMAGE_NAME}:latest ."
-                }
-            }
-        }
-
-        stage('Docker Push') {
-            when {
-                beforeAgent true
-                branch 'main'
-            }
-            steps {
-                dir(env.SERVICE_DIR) {
-                    withCredentials([usernamePassword(
-                            credentialsId: "${DOCKER_REGISTRY_CREDENTIAL}",
-                            usernameVariable: 'REGISTRY_USER',
-                            passwordVariable: 'REGISTRY_PASSWORD')]) {
-                        sh '''
-                            echo "$REGISTRY_PASSWORD" | docker login -u "$REGISTRY_USER" --password-stdin
-                            docker push "${IMAGE_NAME}:${IMAGE_TAG}"
-                            docker push "${IMAGE_NAME}:latest"
-                        '''
-                    }
+                    sh "docker build -t ${env.IMAGE_NAME}:${env.IMAGE_TAG} -t ${env.IMAGE_NAME}:latest ."
                 }
             }
         }
@@ -102,8 +84,24 @@ pipeline {
         stage('Smoke Test (compose)') {
             steps {
                 dir(env.SERVICE_DIR) {
-                    sh "SERVICE_IMAGE=${IMAGE_NAME}:latest docker compose -f docker-compose.yml -f docker-compose.ci.yml up -d --no-build"
-                    sh "for i in \$(seq 1 30); do curl -fsS http://${HEALTHCHECK_HOST}:${SERVICE_PORT}/actuator/health && break || sleep 5; done"
+                    sh "SERVICE_IMAGE=${env.IMAGE_NAME}:${env.IMAGE_TAG} docker compose up -d --no-build"
+                    // Poll until healthy, then fail loudly: the previous loop always exited 0,
+                    // so an unhealthy service still reported a green build.
+                    sh '''
+                        ok=0
+                        for i in $(seq 1 30); do
+                          if curl -fsS "http://$HEALTHCHECK_HOST:$SERVICE_PORT/actuator/health"; then
+                            ok=1
+                            break
+                          fi
+                          sleep 5
+                        done
+                        if [ "$ok" != "1" ]; then
+                          echo "Service did not become healthy on port $SERVICE_PORT; recent logs:"
+                          docker compose logs --no-color course-service || true
+                          exit 1
+                        fi
+                    '''
                 }
             }
         }
@@ -111,11 +109,11 @@ pipeline {
 
     post {
         always {
-            junit allowEmptyResults: true, testResults: '**/target/surefire-reports/*.xml'
-            jacoco execPattern: '**/target/jacoco.exec'
-            archiveArtifacts artifacts: '**/target/*.jar', allowEmptyArchive: true
+            junit allowEmptyResults: true, testResults: "${env.SERVICE_DIR}/target/surefire-reports/*.xml"
+            jacoco execPattern: "${env.SERVICE_DIR}/target/jacoco.exec"
+            archiveArtifacts artifacts: "${env.SERVICE_DIR}/target/*.jar", allowEmptyArchive: true
             dir(env.SERVICE_DIR) {
-                sh 'docker compose -f docker-compose.yml -f docker-compose.ci.yml down -v || true'
+                sh 'docker compose down -v || true'
             }
         }
         success {
