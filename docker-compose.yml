@@ -22,6 +22,8 @@ services:
     env_file:
       - path: ./config-server/.env
         format: raw
+    environment:
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://host.docker.internal:4318/v1/traces
     ports:
       - "8071:8071"
     healthcheck:
@@ -41,6 +43,8 @@ services:
       dockerfile: Dockerfile
     image: gl5-g4-eureka-server:local
     container_name: gl5-eureka-server
+    environment:
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://host.docker.internal:4318/v1/traces
     ports:
       - "8761:8761"
     healthcheck:
@@ -98,6 +102,7 @@ services:
       SPRING_PROFILES_ACTIVE: docker
       CONFIG_SERVER_URL: http://config-server:8071
       EUREKA_URL: http://eureka-server:8761/eureka/
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://host.docker.internal:4318/v1/traces
     ports:
       - "8084:8084"
     networks:
@@ -114,7 +119,7 @@ services:
       MYSQL_PASSWORD: department-dev-password
       MYSQL_ROOT_PASSWORD: department-root-dev-password
     ports:
-      - "3306:3306"
+      - "3310:3306"
     volumes:
       - department-db-data:/var/lib/mysql
     healthcheck:
@@ -147,6 +152,7 @@ services:
       SPRING_PROFILES_ACTIVE: docker
       CONFIG_SERVER_URL: http://config-server:8071
       EUREKA_URL: http://eureka-server:8761/eureka/
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://host.docker.internal:4318/v1/traces
     ports:
       - "8082:8082"
     healthcheck:
@@ -198,6 +204,7 @@ services:
       SPRING_PROFILES_ACTIVE: docker
       CONFIG_SERVER_URL: http://config-server:8071
       EUREKA_URL: http://eureka-server:8761/eureka/
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://host.docker.internal:4318/v1/traces
     ports:
       - "8083:8083"
     healthcheck:
@@ -253,6 +260,7 @@ services:
       SPRING_PROFILES_ACTIVE: docker
       CONFIG_SERVER_URL: http://config-server:8071
       EUREKA_URL: http://eureka-server:8761/eureka/
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://host.docker.internal:4318/v1/traces
     ports:
       - "8085:8085"
     healthcheck:
@@ -292,6 +300,8 @@ services:
       SPRING_PROFILES_ACTIVE: docker
       CONFIG_SERVER_URL: http://config-server:8071
       EUREKA_URL: http://eureka-server:8761/eureka/
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://host.docker.internal:4318/v1/traces
+      MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE: health,info,gateway,prometheus
     ports:
       - "8072:8072"
     healthcheck:

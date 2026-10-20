@@ -129,7 +129,7 @@ All containers should report `(healthy)` once the start-up grace periods elapse
 | Course Service      | `gl5-course-service`    | `8084` | `/course`       |
 | Student Service     | `gl5-student-service`   | `8085` | `/student`      |
 
-MySQL databases are also published on the host: course `3308`, department `3306`,
+MySQL databases are also published on the host: course `3308`, department `3310`,
 enrollment `3307`, student `3309`.
 
 The API Gateway is the recommended single entry point. It exposes each service under its
@@ -260,6 +260,59 @@ docker compose down -v
 | A service is `unhealthy` but the app is running | Health checks use the context path (e.g. `/course/actuator/health`). Allow the ~60 s start-up grace period before investigating. |
 | Requests to `http://localhost:8072/<service>/...` return `503 Service Unavailable` | The gateway could not resolve a healthy instance. Wait ~30 s after start-up (Eureka registration interval) or check the target service in the Eureka dashboard. |
 | Build fails for a service | Make sure you used `docker compose up -d --build` (never pass `--no-build`); all services build from source. |
+
+## Observability (Prometheus + Grafana + Jaeger + Loki)
+
+The applications expose Prometheus-compatible metrics at their Actuator endpoints and
+emit distributed traces through OTLP. Start the monitoring tools separately from the
+application stack:
+
+```sh
+docker compose -f docker-compose.observability.yml up -d
+```
+
+Then open:
+
+- Prometheus: http://localhost:9090
+- Grafana: http://localhost:3000 (`admin` / `admin` for local development)
+- Jaeger: http://localhost:16686
+- Loki: http://localhost:3100
+- Grafana dashboard: **GL5-G4 / GL5-G4 Spring Services**
+
+Jaeger receives OTLP/HTTP traces on `localhost:4318`. Host-run applications use this
+endpoint by default. The main Docker Compose file sets
+`OTEL_EXPORTER_OTLP_ENDPOINT=http://host.docker.internal:4318/v1/traces` for containerized
+services, so the same Jaeger instance receives traces from either deployment mode.
+Sampling defaults to 100% for local development and can be adjusted with
+`TRACING_SAMPLING_PROBABILITY`.
+
+Loki stores container logs and Grafana Alloy discovers Docker containers through the
+Docker socket and forwards their structured JSON logs to Loki. Logs are available in
+Grafana through the provisioned Loki data source. The Alloy container requires Docker
+Desktop's Docker socket to be available.
+
+Prometheus scrapes the Eureka server, API Gateway, and four business services from
+the host using `host.docker.internal`. Start the application stack first with
+`docker compose up -d --build`. The Config Server is intentionally not scraped
+because its Actuator endpoints require Basic Authentication.
+
+The main Compose file explicitly enables the gateway's Prometheus endpoint through
+an environment override, so local scraping works even when the external Config
+Server repository has not yet been updated with the observability properties.
+
+Direct metric endpoints are:
+
+```sh
+curl http://localhost:8761/actuator/prometheus
+curl http://localhost:8072/actuator/prometheus
+curl http://localhost:8082/department/actuator/prometheus
+curl http://localhost:8083/enrollment/actuator/prometheus
+curl http://localhost:8084/course/actuator/prometheus
+curl http://localhost:8085/student/actuator/prometheus
+```
+
+The Actuator exposure is limited to health, info, and Prometheus metrics. Console
+logs use Spring Boot's structured JSON format for collection by Alloy and Loki.
 
 ## Project layout
 
