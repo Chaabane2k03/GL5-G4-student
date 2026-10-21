@@ -53,7 +53,8 @@ public class SecurityConfig {
     private static final String[] ACTUATOR_PUBLIC_PATHS = {
             "/actuator/health",
             "/actuator/health/**",
-            "/actuator/info"
+            "/actuator/info",
+            "/actuator/prometheus"
     };
 
     @Value("${gateway.security.client-id:api-gateway}")
@@ -75,7 +76,7 @@ public class SecurityConfig {
                     // 1. CORS Preflight: Always permit HTTP OPTIONS without authentication
                     exchanges.pathMatchers(HttpMethod.OPTIONS).permitAll();
 
-                    // 2. Health & Info Actuator probes: Public for container orchestrators
+                    // 2. Read-only Actuator probes: Public for orchestrators and Prometheus
                     exchanges.pathMatchers(ACTUATOR_PUBLIC_PATHS).permitAll();
 
                     // 3. Swagger / OpenAPI documentation: Public in dev/staging, configurable in production

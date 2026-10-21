@@ -1,0 +1,11 @@
+apiVersion: 1
+
+providers:
+  - name: GL5-G4 dashboards
+    orgId: 1
+    folder: GL5-G4
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 30
+    options:
+      path: /var/lib/grafana/dashboards
