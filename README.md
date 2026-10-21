@@ -314,6 +314,9 @@ curl http://localhost:8085/student/actuator/prometheus
 The Actuator exposure is limited to health, info, and Prometheus metrics. Console
 logs use Spring Boot's structured JSON format for collection by Alloy and Loki.
 
+For the proposed resilience, messaging, CI/CD, security, and deployment roadmap, see
+[`ARCHITECTURE-ROADMAP.md`](./ARCHITECTURE-ROADMAP.md).
+
 ## Project layout
 
 ```
