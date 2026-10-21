@@ -8,8 +8,8 @@ jenkins:
     local:
       allowsSignup: false
       users:
-        - id: "admin"
-          password: "admin"
+        - id: "${JENKINS_ADMIN_USER:-admin}"
+          password: "${JENKINS_ADMIN_PASSWORD:-admin}"
 
   authorizationStrategy:
     loggedInUsersCanDoAnything:
@@ -38,12 +38,6 @@ credentials:
               id: "sonar-token"
               secret: "${SONAR_TOKEN}"
               description: "SonarQube user token (supplied via the SONAR_TOKEN environment variable)"
-          - usernamePassword:
-              scope: GLOBAL
-              id: "docker-registry"
-              username: "ci"
-              password: "ci"
-              description: "Dummy registry credential - only used by the push stage on main"
 
 unclassified:
   location:
@@ -63,12 +57,22 @@ jobs:
           cpsScm {
             scm {
               git {
-                remote { url('file:///src/course-service') }
-                branch('main')
+                remote { url('https://github.com/Chaabane2k03/GL5-G4-student.git') }
+                branch('develop')
               }
             }
-            scriptPath('Jenkinsfile')
+            scriptPath('course-service/Jenkinsfile')
             lightweight(true)
+          }
+        }
+        // Job DSL 3732 has no sparse-checkout DSL, so inject the GitSCM extension via XML.
+        configure { project ->
+          project / 'definition' / 'scm' / 'extensions' << 'hudson.plugins.git.extensions.impl.SparseCheckoutPaths' {
+            sparseCheckoutPaths {
+              'hudson.plugins.git.extensions.impl.SparseCheckoutPath' {
+                path('course-service')
+              }
+            }
           }
         }
       }

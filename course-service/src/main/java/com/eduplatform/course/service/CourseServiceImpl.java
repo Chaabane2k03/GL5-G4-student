@@ -8,11 +8,15 @@ import com.eduplatform.course.entity.Course;
 import com.eduplatform.course.entity.CourseStatus;
 import com.eduplatform.course.exception.CourseNotFoundException;
 import com.eduplatform.course.exception.DepartmentNotFoundException;
+import com.eduplatform.course.exception.DepartmentServiceUnavailableException;
 import com.eduplatform.course.exception.DuplicateCourseCodeException;
 import com.eduplatform.course.exception.InvalidRequestException;
 import com.eduplatform.course.mapper.CourseMapper;
 import com.eduplatform.course.repository.CourseRepository;
 import feign.FeignException;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
@@ -22,7 +26,6 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.sql.SQLIntegrityConstraintViolationException;
-import java.util.List;
 import java.util.Locale;
 import java.util.Set;
 
@@ -34,18 +37,22 @@ public class CourseServiceImpl implements CourseService {
 
     static final Set<String> ALLOWED_SORT_FIELDS = Set.of("id", "code", "title", "credits", "createdAt");
     static final int MAX_PAGE_SIZE = 100;
+    private static final Logger LOG = LoggerFactory.getLogger(CourseServiceImpl.class);
     private static final int MYSQL_DUPLICATE_KEY_ERROR_CODE = 1062;
     private static final Sort DEFAULT_SORT = Sort.by(Sort.Direction.ASC, "code");
 
     private final CourseRepository courseRepository;
     private final CourseMapper courseMapper;
     private final DepartmentClient departmentClient;
+    private final String departmentValidation;
 
     public CourseServiceImpl(CourseRepository courseRepository, CourseMapper courseMapper,
-                             DepartmentClient departmentClient) {
+                             DepartmentClient departmentClient,
+                             @Value("${app.department.validation:strict}") String departmentValidation) {
         this.courseRepository = courseRepository;
         this.courseMapper = courseMapper;
         this.departmentClient = departmentClient;
+        this.departmentValidation = departmentValidation;
     }
 
     @Override
@@ -81,17 +88,7 @@ public class CourseServiceImpl implements CourseService {
         Specification<Course> specification =
                 Specification.allOf(hasDepartmentId(departmentId), hasStatus(status));
         Page<Course> result = courseRepository.findAll(specification, PageRequest.of(page, size, sortOrder));
-        List<CourseResponse> content = result.getContent().stream()
-                .map(courseMapper::toResponse)
-                .toList();
-        return new PageResponse<>(
-                content,
-                result.getNumber(),
-                result.getSize(),
-                result.getTotalElements(),
-                result.getTotalPages(),
-                result.isFirst(),
-                result.isLast());
+        return PageResponse.from(result.map(courseMapper::toResponse));
     }
 
     @Override
@@ -149,12 +146,31 @@ public class CourseServiceImpl implements CourseService {
      * Cross-service integrity check: a course must belong to an existing department. The
      * department-service answers 404 for an unknown id, which Feign surfaces as
      * {@link FeignException.NotFound} and is translated into a domain exception (404).
+     *
+     * <p>Selected by {@code app.department.validation}:</p>
+     * <ul>
+     *   <li>{@code strict} (default) - the check always runs. When the department-service
+     *       cannot be reached the write is refused with
+     *       {@link DepartmentServiceUnavailableException} (503) rather than persisting an
+     *       unverified department id. Any value other than {@code off} behaves like
+     *       {@code strict}, so a mistyped value fails safe.</li>
+     *   <li>{@code off} - set by the standalone compose, where course-service runs alone
+     *       and there is no department-service to ask. The client is not called at all and
+     *       departments are referenced by id only.</li>
+     * </ul>
      */
     private void requireDepartmentExists(Long departmentId) {
+        if ("off".equalsIgnoreCase(departmentValidation)) {
+            return;
+        }
         try {
             departmentClient.getDepartment(departmentId);
         } catch (FeignException.NotFound ex) {
             throw new DepartmentNotFoundException(departmentId);
+        } catch (FeignException ex) {
+            LOG.warn("department-service unavailable, refusing write for department {}: {}",
+                    departmentId, ex.getMessage());
+            throw new DepartmentServiceUnavailableException(departmentId);
         }
     }
 

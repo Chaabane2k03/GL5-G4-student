@@ -8,6 +8,7 @@ import com.eduplatform.course.entity.Course;
 import com.eduplatform.course.entity.CourseStatus;
 import com.eduplatform.course.exception.CourseNotFoundException;
 import com.eduplatform.course.exception.DepartmentNotFoundException;
+import com.eduplatform.course.exception.DepartmentServiceUnavailableException;
 import com.eduplatform.course.exception.DuplicateCourseCodeException;
 import com.eduplatform.course.exception.InvalidRequestException;
 import com.eduplatform.course.mapper.CourseMapper;
@@ -46,6 +47,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 /**
@@ -67,7 +69,7 @@ class CourseServiceImplTest {
 
     @BeforeEach
     void setUp() {
-        service = new CourseServiceImpl(courseRepository, courseMapper, departmentClient);
+        service = new CourseServiceImpl(courseRepository, courseMapper, departmentClient, "strict");
     }
 
     private static CourseRequest request(String code) {
@@ -176,6 +178,37 @@ class CourseServiceImplTest {
                     .hasMessageContaining("1");
 
             verify(courseRepository, never()).saveAndFlush(any(Course.class));
+        }
+
+        @Test
+        void shouldFailWith503WhenDepartmentServiceIsUnreachable() {
+            when(courseRepository.existsByCode("CS101")).thenReturn(false);
+            when(departmentClient.getDepartment(1L)).thenThrow(mock(FeignException.class));
+
+            CourseRequest req = request("CS101");
+            assertThatThrownBy(() -> service.create(req))
+                    .isInstanceOf(DepartmentServiceUnavailableException.class)
+                    .hasMessageContaining("1");
+
+            verify(courseRepository, never()).saveAndFlush(any(Course.class));
+        }
+
+        @Test
+        void shouldSkipDepartmentCheckWhenValidationDisabled() {
+            CourseService standalone =
+                    new CourseServiceImpl(courseRepository, courseMapper, departmentClient, "off");
+            when(courseRepository.existsByCode("CS101")).thenReturn(false);
+            when(courseRepository.saveAndFlush(any(Course.class))).thenAnswer(invocation -> {
+                Course saved = invocation.getArgument(0);
+                saved.setId(42L);
+                return saved;
+            });
+
+            CourseResponse response = standalone.create(request("CS101"));
+
+            assertThat(response.id()).isEqualTo(42L);
+            assertThat(response.code()).isEqualTo("CS101");
+            verifyNoInteractions(departmentClient);
         }
     }
 

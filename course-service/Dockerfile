@@ -1,5 +1,3 @@
-# syntax=docker/dockerfile:1
-
 # Base images (overridable: docker build --build-arg MAVEN_IMAGE=... --build-arg JRE_IMAGE=...).
 ARG MAVEN_IMAGE=maven:3.9-eclipse-temurin-17
 ARG JRE_IMAGE=eclipse-temurin:17-jre-alpine
@@ -9,9 +7,9 @@ FROM ${MAVEN_IMAGE} AS build
 WORKDIR /workspace
 
 COPY pom.xml .
-RUN mvn -B -q dependency:go-offline -DskipTests
+RUN mvn -B -q dependency:go-offline -DskipTests -Dmaven.artifact.threads=1
 COPY src ./src
-RUN mvn -B -q clean package -DskipTests
+RUN mvn -B -q clean package -DskipTests -Dmaven.artifact.threads=1
 
 # ---- Runtime stage ----
 FROM ${JRE_IMAGE}
