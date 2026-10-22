@@ -26,7 +26,11 @@ services:
       # Login for the local Jenkins UI (see jenkins/casc.yaml).
       JENKINS_ADMIN_USER: ${JENKINS_ADMIN_USER:-admin}
       JENKINS_ADMIN_PASSWORD: ${JENKINS_ADMIN_PASSWORD:-admin}
-      SONAR_TOKEN: ${SONAR_TOKEN:-}
+      # SonarQube credential injected into the "sonar-creds" Jenkins credential
+      # (jenkins/casc.yaml). It must match the value configured by sonar-init in
+      # docker-compose.sonar.yml; both default to admin / course-service-sonar.
+      SONAR_USER: ${SONAR_USER:-admin}
+      SONAR_PASSWORD: ${SONAR_PASSWORD:-course-service-sonar}
       JENKINS_EXTERNAL_URL: ${JENKINS_EXTERNAL_URL:-http://localhost:8090/}
       # Docker-outside-of-Docker: pipelines use the mounted host socket, and
       # Testcontainers must reach the containers it starts via the host gateway.

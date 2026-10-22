@@ -14,7 +14,7 @@ pipeline {
     parameters {
         string(name: 'SERVICE_DIR',      defaultValue: 'course-service',       description: 'Path (within the repository) to the service root')
         string(name: 'IMAGE_NAME',       defaultValue: 'course-service',       description: 'Docker image repository name')
-        string(name: 'SONAR_SERVER',     defaultValue: 'sonarqube',            description: 'Jenkins SonarQube server name')
+        string(name: 'SONAR_HOST_URL',   defaultValue: 'http://host.docker.internal:9000', description: 'SonarQube URL as seen from this controller')
         string(name: 'SERVICE_PORT',     defaultValue: '8084',                 description: 'Port the service is published on')
         string(name: 'HEALTHCHECK_HOST', defaultValue: 'host.docker.internal', description: 'Host used to reach the service for the smoke test')
     }
@@ -23,7 +23,7 @@ pipeline {
         SERVICE_DIR      = "${params.SERVICE_DIR}"
         IMAGE_NAME       = "${params.IMAGE_NAME}"
         IMAGE_TAG        = "${env.BUILD_NUMBER}"
-        SONAR_SERVER     = "${params.SONAR_SERVER}"
+        SONAR_HOST_URL   = "${params.SONAR_HOST_URL}"
         SERVICE_PORT     = "${params.SERVICE_PORT}"
         HEALTHCHECK_HOST = "${params.HEALTHCHECK_HOST}"
     }
@@ -54,10 +54,17 @@ pipeline {
         stage('Static Analysis (SonarQube)') {
             steps {
                 dir(env.SERVICE_DIR) {
-                    // The project key and the scanner host come from pom.xml and the SonarQube
-                    // server configuration, so only the credentials are injected here.
-                    withSonarQubeEnv("${env.SONAR_SERVER}") {
-                        sh 'mvn -B sonar:sonar'
+                    // The scanner authenticates with the username/password credential that
+                    // sonar-init enforces on the SonarQube instance; no plugin-managed server
+                    // configuration (and therefore no webhook) is involved.
+                    withCredentials([usernamePassword(credentialsId: 'sonar-creds', usernameVariable: 'SONAR_USER', passwordVariable: 'SONAR_PASSWORD')]) {
+                        sh '''
+                            set -eu
+                            mvn -B sonar:sonar \
+                                -Dsonar.host.url="$SONAR_HOST_URL" \
+                                -Dsonar.login="$SONAR_USER" \
+                                -Dsonar.password="$SONAR_PASSWORD"
+                        '''
                     }
                 }
             }
@@ -65,10 +72,74 @@ pipeline {
 
         stage('Quality Gate') {
             steps {
-                // The scan reports to the configured server, which calls back through the
-                // Jenkins webhook; this stage waits for that verdict instead of polling.
-                timeout(time: 1, unit: 'HOURS') {
-                    waitForQualityGate abortPipeline: true
+                // SonarQube computes the gate asynchronously. The scanner leaves the task id in
+                // target/sonar/report-task.txt, so poll the web API until the task finishes and
+                // then read the gate verdict. Polling keeps working when the server cannot call
+                // back into Jenkins (host.docker.internal is a site-local address, which
+                // SonarQube 26.10 refuses as a webhook target).
+                dir(env.SERVICE_DIR) {
+                    withCredentials([usernamePassword(credentialsId: 'sonar-creds', usernameVariable: 'SONAR_USER', passwordVariable: 'SONAR_PASSWORD')]) {
+                        timeout(time: 10, unit: 'MINUTES') {
+                            sh '''
+                                set -euo pipefail
+
+                                REPORT="target/sonar/report-task.txt"
+                                if [ ! -f "$REPORT" ]; then
+                                  echo "ERROR: $REPORT is missing - the scanner did not submit an analysis"
+                                  exit 1
+                                fi
+
+                                TASK_ID=$(sed -n 's/^ceTaskId=//p' "$REPORT" | head -n1)
+                                if [ -z "$TASK_ID" ]; then
+                                  echo "ERROR: no ceTaskId in $REPORT"
+                                  exit 1
+                                fi
+
+                                AUTH=$(printf '%s:%s' "$SONAR_USER" "$SONAR_PASSWORD" | base64 | tr -d '\\n')
+                                sonar_api() { curl -fsS -H "Authorization: Basic $AUTH" "$SONAR_HOST_URL$1"; }
+
+                                echo "Waiting for analysis task $TASK_ID ..."
+                                ANALYSIS_ID=""
+                                for _ in $(seq 1 60); do
+                                  TASK=$(sonar_api "/api/ce/task?id=$TASK_ID")
+                                  TASK_STATUS=$(printf '%s' "$TASK" | jq -r '.task.status')
+                                  case "$TASK_STATUS" in
+                                    SUCCESS)
+                                      ANALYSIS_ID=$(printf '%s' "$TASK" | jq -r '.task.analysisId')
+                                      break
+                                      ;;
+                                    FAILED|CANCELED)
+                                      echo "ERROR: analysis task $TASK_ID ended in $TASK_STATUS"
+                                      exit 1
+                                      ;;
+                                    *)
+                                      sleep 5
+                                      ;;
+                                  esac
+                                done
+
+                                if [ -z "$ANALYSIS_ID" ] || [ "$ANALYSIS_ID" = "null" ]; then
+                                  echo "ERROR: analysis task $TASK_ID did not finish in time"
+                                  exit 1
+                                fi
+
+                                GATE=$(sonar_api "/api/qualitygates/project_status?analysisId=$ANALYSIS_ID")
+                                printf '%s' "$GATE" | jq -r \
+                                  '.projectStatus.conditions[]? | "  \\(.metricKey): \\(.status) (actual=\\(.actualValue // "-"), threshold=\\(.errorThreshold // "-"))"'
+                                GATE_STATUS=$(printf '%s' "$GATE" | jq -r '.projectStatus.status')
+
+                                case "$GATE_STATUS" in
+                                  OK|WARN)
+                                    echo "Quality gate: $GATE_STATUS"
+                                    ;;
+                                  *)
+                                    echo "ERROR: quality gate: $GATE_STATUS"
+                                    exit 1
+                                    ;;
+                                esac
+                            '''
+                        }
+                    }
                 }
             }
         }
