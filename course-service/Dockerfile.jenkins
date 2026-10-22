@@ -1,14 +1,17 @@
 # Jenkins controller for the course-service pipeline.
 # Adds the Docker CLI + Compose plugin (so pipeline `docker build` / `docker compose`
 # work via the mounted host socket) and a Maven distribution whose home is referenced
-# by the "maven-3.9" tool in jenkins/casc.yaml. JDK 17 is already provided by the base image.
-FROM jenkins/jenkins:lts-jdk17
+# by the "maven-3.9" tool in jenkins/casc.yaml.
+# Jenkins 2.580.1 requires Java 21, so the controller itself runs on the base image JDK.
+# The course-service application stays on Java 17, so a Temurin 17 JDK is installed
+# separately and referenced by the "jdk17" tool in jenkins/casc.yaml.
+FROM jenkins/jenkins:2.580.1-jdk21
 
 USER root
 
 # ---- Docker CLI + Compose plugin ----
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        ca-certificates curl gnupg git \
+        ca-certificates curl gnupg git jq \
     && install -m 0755 -d /etc/apt/keyrings \
     && curl -fsSL https://download.docker.com/linux/debian/gpg -o /etc/apt/keyrings/docker.asc \
     && chmod a+r /etc/apt/keyrings/docker.asc \
@@ -18,6 +21,23 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && apt-get update \
     && apt-get install -y --no-install-recommends docker-ce-cli docker-compose-plugin \
     && rm -rf /var/lib/apt/lists/*
+
+# ---- JDK 17 for the course-service build (controller itself runs on Java 21) ----
+# Adoptium names the architecture x64/aarch64, Docker names it amd64/arm64.
+ARG TARGETARCH=amd64
+ARG JDK17_VERSION=jdk-17.0.20.1%2B1
+RUN set -e; \
+    case "$TARGETARCH" in \
+        amd64) jdk_arch=x64 ;; \
+        arm64) jdk_arch=aarch64 ;; \
+        *) echo "Unsupported TARGETARCH: $TARGETARCH" >&2; exit 1 ;; \
+    esac; \
+    curl -fsSL "https://api.adoptium.net/v3/binary/version/${JDK17_VERSION}/linux/${jdk_arch}/jdk/hotspot/normal/eclipse" \
+        -o /tmp/jdk17.tgz; \
+    mkdir -p /opt/java/jdk17; \
+    tar -xzf /tmp/jdk17.tgz -C /opt/java/jdk17 --strip-components=1; \
+    rm /tmp/jdk17.tgz; \
+    /opt/java/jdk17/bin/java -version
 
 # ---- Maven (home referenced by the "maven-3.9" tool) ----
 ARG MAVEN_VERSION=3.9.9
@@ -36,7 +56,11 @@ RUN jenkins-plugin-cli --plugins \
         junit \
         jacoco \
         sonar \
-        credentials-binding
+        credentials-binding \
+        pipeline-stage-view \
+        maven-plugin \
+        nexus-artifact-uploader \
+        sonargraph-integration
 
 # Bind-mounted repositories report a foreign owner inside the container; trust them.
 USER root

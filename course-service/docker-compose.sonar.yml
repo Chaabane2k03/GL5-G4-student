@@ -16,7 +16,7 @@ services:
     restart: unless-stopped
 
   sonarqube:
-    image: ${SONAR_IMAGE:-sonarqube:10.6-community}
+    image: ${SONAR_IMAGE:-sonarqube:26.10.0.133078-community}
     container_name: ${SONAR_CONTAINER_NAME:-course-sonarqube}
     depends_on:
       sonar-db:
@@ -26,6 +26,8 @@ services:
       SONAR_JDBC_USERNAME: ${SONAR_DB_USER:-sonar}
       SONAR_JDBC_PASSWORD: ${SONAR_DB_PASSWORD:-sonar}
       SONAR_ES_BOOTSTRAP_CHECKS_DISABLE: ${SONAR_ES_BOOTSTRAP_CHECKS_DISABLE:-true}
+      SONAR_WEB_JAVAOPTS: ${SONAR_WEB_JAVAOPTS:--Xmx512m -Xms128m}
+      SONAR_CE_JAVAOPTS: ${SONAR_CE_JAVAOPTS:--Xmx512m -Xms128m}
     ports:
       - "${SONAR_PORT:-9000}:9000"
     volumes:
@@ -39,6 +41,187 @@ services:
       retries: 5
       start_period: 90s
     restart: unless-stopped
+
+  # One-shot bootstrap that makes the stack usable with no manual UI step.
+  #
+  #   1. Pins the admin credential to SONAR_USER / SONAR_PASSWORD. A fresh
+  #      SonarQube 26.10 ships admin/admin with the forced-password-change flag
+  #      set, and an instance upgraded from 10.x keeps whatever password it had,
+  #      so neither can be assumed by the pipeline.
+  #   2. Creates the "course-service" quality gate and makes it the instance
+  #      default. The built-in "Sonar way" gate also requires every new security
+  #      hotspot to be reviewed, which no automated build can satisfy.
+  #
+  # It only uses the public web API (no database access) and its failure never
+  # takes the rest of the stack down: it logs an actionable message and exits.
+  sonar-init:
+    image: ${SONAR_INIT_IMAGE:-python:3-alpine}
+    container_name: ${SONAR_INIT_CONTAINER_NAME:-course-sonar-init}
+    depends_on:
+      sonarqube:
+        condition: service_healthy
+    environment:
+      SONAR_HOST_URL: http://sonarqube:9000
+      SONAR_USER: ${SONAR_USER:-admin}
+      SONAR_PASSWORD: ${SONAR_PASSWORD:-course-service-sonar}
+      SONAR_GATE_NAME: ${SONAR_GATE_NAME:-course-service}
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        set -eu
+        python3 - <<'PY'
+        import base64, json, os, sys, time, urllib.error, urllib.parse, urllib.request
+
+        BASE = os.environ["SONAR_HOST_URL"].rstrip("/")
+        USER = os.environ["SONAR_USER"]
+        PASSWORD = os.environ["SONAR_PASSWORD"]
+        GATE = os.environ["SONAR_GATE_NAME"]
+
+        # Conditions applied to the gate (SonarQube 26.10 uses these standard
+        # metrics in both MQR and standard experience modes). Security hotspots
+        # are deliberately absent: they need a human review.
+        CONDITIONS = {
+            "new_violations": ("GT", "0"),
+            "new_coverage": ("LT", "90"),
+            "new_duplicated_lines_density": ("GT", "3"),
+        }
+
+
+        def log(message):
+            print("[sonar-init] " + message, flush=True)
+
+
+        def call(method, path, params=None, auth=None):
+            data = urllib.parse.urlencode(params).encode() if params else None
+            request = urllib.request.Request(BASE + path, data=data, method=method)
+            if data is not None:
+                request.add_header("Content-Type", "application/x-www-form-urlencoded")
+            if auth:
+                raw = (auth[0] + ":" + auth[1]).encode()
+                request.add_header("Authorization", "Basic " + base64.b64encode(raw).decode())
+            try:
+                with urllib.request.urlopen(request, timeout=30) as response:
+                    body = response.read().decode()
+                    return response.status, json.loads(body) if body.strip() else {}
+            except urllib.error.HTTPError as error:
+                body = error.read().decode()
+                try:
+                    return error.code, json.loads(body)
+                except ValueError:
+                    return error.code, {"raw": body}
+            except OSError as error:
+                return 0, {"error": str(error)}
+
+
+        def wait_for_api():
+            for _ in range(120):
+                if call("GET", "/api/system/status")[0] == 200:
+                    return True
+                time.sleep(5)
+            return False
+
+
+        def authenticates():
+            status, body = call("GET", "/api/authentication/validate", auth=(USER, PASSWORD))
+            return status == 200 and body.get("valid") is True
+
+
+        def align_credentials():
+            if authenticates():
+                log("credential '" + USER + "' accepted")
+                return True
+            factory = call("GET", "/api/authentication/validate", auth=("admin", "admin"))[1]
+            if USER == "admin" and factory.get("valid") is True:
+                if len(PASSWORD) < 12:
+                    log("ERROR: SONAR_PASSWORD must be at least 12 characters (SonarQube password policy)")
+                    return False
+                log("pinning the factory admin password to SONAR_PASSWORD")
+                status, body = call(
+                    "POST",
+                    "/api/users/change_password",
+                    {"login": "admin", "previousPassword": "admin", "password": PASSWORD},
+                    auth=("admin", "admin"),
+                )
+                if status in (200, 204) and authenticates():
+                    log("credential aligned")
+                    return True
+                log("ERROR: change_password failed: " + str(status) + " " + json.dumps(body))
+                return False
+            log(
+                "ERROR: SonarQube rejected '" + USER + "' and the factory admin/admin credentials do not "
+                "work either. Set SONAR_USER/SONAR_PASSWORD in .env to this instance's credentials, or "
+                "recreate the volumes (docker compose -f docker-compose.sonar.yml down -v) to start fresh."
+            )
+            return False
+
+
+        def ensure_gate():
+            status, body = call("GET", "/api/qualitygates/list", auth=(USER, PASSWORD))
+            if status != 200:
+                log("ERROR: cannot list quality gates: " + str(status))
+                return False
+            if GATE not in [gate["name"] for gate in body.get("qualitygates", [])]:
+                status, body = call("POST", "/api/qualitygates/create", {"name": GATE}, auth=(USER, PASSWORD))
+                if status not in (200, 204):
+                    log("ERROR: cannot create gate '" + GATE + "': " + str(status) + " " + json.dumps(body))
+                    return False
+                log("created quality gate '" + GATE + "'")
+
+            show = "/api/qualitygates/show?" + urllib.parse.urlencode({"name": GATE})
+            status, body = call("GET", show, auth=(USER, PASSWORD))
+            current = {condition["metric"]: condition for condition in body.get("conditions", [])}
+
+            for metric in [name for name in current if name not in CONDITIONS]:
+                status, _ = call(
+                    "POST", "/api/qualitygates/delete_condition", {"id": current[metric]["id"]}, auth=(USER, PASSWORD)
+                )
+                log("removed condition " + metric + " (" + str(status) + ")")
+                current.pop(metric)
+
+            for metric, (operator, error) in CONDITIONS.items():
+                condition = current.get(metric)
+                if condition and (condition.get("op"), str(condition.get("error"))) == (operator, error):
+                    continue
+                if condition:
+                    status, _ = call(
+                        "POST",
+                        "/api/qualitygates/update_condition",
+                        {"id": condition["id"], "metric": metric, "op": operator, "error": error},
+                        auth=(USER, PASSWORD),
+                    )
+                    log("updated condition " + metric + " to " + operator + " " + error + " (" + str(status) + ")")
+                else:
+                    status, _ = call(
+                        "POST",
+                        "/api/qualitygates/create_condition",
+                        {"gateName": GATE, "metric": metric, "op": operator, "error": error},
+                        auth=(USER, PASSWORD),
+                    )
+                    log("added condition " + metric + " " + operator + " " + error + " (" + str(status) + ")")
+
+            status, body = call("GET", show, auth=(USER, PASSWORD))
+            actual = sorted((c["metric"], c["op"], str(c["error"])) for c in body.get("conditions", []))
+            expected = sorted((metric, op, err) for metric, (op, err) in CONDITIONS.items())
+            if actual != expected:
+                log("ERROR: gate conditions are " + str(actual) + ", expected " + str(expected))
+                return False
+
+            status, _ = call("POST", "/api/qualitygates/set_as_default", {"name": GATE}, auth=(USER, PASSWORD))
+            if status not in (200, 204):
+                log("ERROR: cannot make '" + GATE + "' the default gate: " + str(status))
+                return False
+            log("quality gate '" + GATE + "' is the instance default")
+            return True
+
+
+        if not wait_for_api():
+            log("ERROR: SonarQube API did not become reachable")
+            sys.exit(1)
+        if not align_credentials():
+            sys.exit(1)
+        sys.exit(0 if ensure_gate() else 1)
+        PY
+    restart: "no"
 
 volumes:
   sonar-db-data:

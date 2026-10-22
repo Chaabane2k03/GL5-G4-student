@@ -15,15 +15,11 @@ jenkins:
     loggedInUsersCanDoAnything:
       allowAnonymousRead: false
 
-  crumbIssuer:
-    standard:
-      excludeClientIPFromCrumb: true
-
 tool:
   jdk:
     installations:
       - name: "jdk17"
-        home: "/opt/java/openjdk"
+        home: "/opt/java/jdk17"
   maven:
     installations:
       - name: "maven-3.9"
@@ -33,21 +29,27 @@ credentials:
   system:
     domainCredentials:
       - credentials:
-          - string:
+          # Consumed by the Jenkinsfile through withCredentials(). The default is
+          # the credential that sonar-init enforces on the SonarQube instance
+          # (docker-compose.sonar.yml); override both with SONAR_USER /
+          # SONAR_PASSWORD in .env.
+          - usernamePassword:
               scope: GLOBAL
-              id: "sonar-token"
-              secret: "${SONAR_TOKEN}"
-              description: "SonarQube user token (supplied via the SONAR_TOKEN environment variable)"
+              id: "sonar-creds"
+              username: "${SONAR_USER:-admin}"
+              password: "${SONAR_PASSWORD:-course-service-sonar}"
+              description: "SonarQube credentials (SONAR_USER / SONAR_PASSWORD)"
+
+# No sonarGlobalConfiguration on purpose: that plugin registers a webhook at
+# http://host.docker.internal:8090/sonar-webhook-hook/..., which SonarQube
+# 26.10 rejects because it resolves to a site-local address. The pipeline polls
+# the web API for the quality gate instead, so no server entry (and no webhook)
+# is needed.
 
 unclassified:
   location:
     url: "${JENKINS_EXTERNAL_URL}"
     adminAddress: "ci@localhost"
-  sonarGlobalConfiguration:
-    installations:
-      - name: "sonarqube"
-        serverUrl: "http://host.docker.internal:9000"
-        credentialsId: "sonar-token"
 
 jobs:
   - script: |
@@ -57,7 +59,7 @@ jobs:
           cpsScm {
             scm {
               git {
-                remote { url('https://github.com/Chaabane2k03/GL5-G4-student.git') }
+                remote { url('file:///var/jenkins_home/workspace/repo') }
                 branch('develop')
               }
             }
