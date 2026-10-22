@@ -54,16 +54,12 @@ pipeline {
         stage('Static Analysis (SonarQube)') {
             steps {
                 dir(env.SERVICE_DIR) {
-                    // The scanner authenticates with the username/password credential that
-                    // sonar-init enforces on the SonarQube instance; no plugin-managed server
-                    // configuration (and therefore no webhook) is involved.
-                    withCredentials([usernamePassword(credentialsId: 'sonar-creds', usernameVariable: 'SONAR_USER', passwordVariable: 'SONAR_PASSWORD')]) {
+                    withCredentials([string(credentialsId: 'sonar-token', variable: 'SONAR_TOKEN')]) {
                         sh '''
                             set -eu
                             mvn -B sonar:sonar \
                                 -Dsonar.host.url="$SONAR_HOST_URL" \
-                                -Dsonar.login="$SONAR_USER" \
-                                -Dsonar.password="$SONAR_PASSWORD"
+                                -Dsonar.token="$SONAR_TOKEN"
                         '''
                     }
                 }
@@ -72,13 +68,8 @@ pipeline {
 
         stage('Quality Gate') {
             steps {
-                // SonarQube computes the gate asynchronously. The scanner leaves the task id in
-                // target/sonar/report-task.txt, so poll the web API until the task finishes and
-                // then read the gate verdict. Polling keeps working when the server cannot call
-                // back into Jenkins (host.docker.internal is a site-local address, which
-                // SonarQube 26.10 refuses as a webhook target).
                 dir(env.SERVICE_DIR) {
-                    withCredentials([usernamePassword(credentialsId: 'sonar-creds', usernameVariable: 'SONAR_USER', passwordVariable: 'SONAR_PASSWORD')]) {
+                    withCredentials([string(credentialsId: 'sonar-token', variable: 'SONAR_TOKEN')]) {
                         timeout(time: 10, unit: 'MINUTES') {
                             sh '''
                                 set -euo pipefail
@@ -95,7 +86,7 @@ pipeline {
                                   exit 1
                                 fi
 
-                                AUTH=$(printf '%s:%s' "$SONAR_USER" "$SONAR_PASSWORD" | base64 | tr -d '\\n')
+                                AUTH=$(printf '%s:' "$SONAR_TOKEN" | base64 | tr -d '\\n')
                                 sonar_api() { curl -fsS -H "Authorization: Basic $AUTH" "$SONAR_HOST_URL$1"; }
 
                                 echo "Waiting for analysis task $TASK_ID ..."

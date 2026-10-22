@@ -44,6 +44,6 @@ Thumbs.db
 !.env.example
 .m2
 
-# Only ignore a jenkins/ directory at the repository root; course-service/jenkins/
+# Ignore jenkins directory
 # holds the controller's Configuration as Code and must stay tracked.
-/jenkins/
+jenkins/
