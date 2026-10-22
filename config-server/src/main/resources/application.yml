@@ -37,9 +37,10 @@ management:
   endpoints:
     web:
       exposure:
-        include: ${MANAGEMENT_ENDPOINTS:health,info}
+        include: "${MANAGEMENT_ENDPOINTS:health,info,prometheus}"
   endpoint:
     health:
+      show-details: never
       # Liveness/readiness probes: /actuator/health/liveness and
       # /actuator/health/readiness. Note that Spring Security keeps all
       # actuator endpoints behind Basic Auth here (see SecurityConfig and the
@@ -47,6 +48,19 @@ management:
       # an Authorization header via the Deployment's probe httpHeaders.
       probes:
         enabled: ${MANAGEMENT_HEALTH_PROBES:true}
+  metrics:
+    tags:
+      application: ${spring.application.name}
+  tracing:
+    sampling:
+      probability: ${TRACING_SAMPLING_PROBABILITY:1.0}
+  otlp:
+    tracing:
+      endpoint: ${OTEL_EXPORTER_OTLP_ENDPOINT:http://localhost:4318/v1/traces}
+logging:
+  structured:
+    format:
+      console: logstash
 
 ---
 # Local development only. Provides fallback credentials and a fallback

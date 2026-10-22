@@ -24,11 +24,26 @@ management:
   endpoints:
     web:
       exposure:
-        include: "${MANAGEMENT_ENDPOINTS:health,info}"
+        include: "${MANAGEMENT_ENDPOINTS:health,info,prometheus}"
   endpoint:
     health:
+      show-details: never
       probes:
         enabled: ${MANAGEMENT_HEALTH_PROBES:true}
+  metrics:
+    tags:
+      application: ${spring.application.name}
+  tracing:
+    sampling:
+      probability: ${TRACING_SAMPLING_PROBABILITY:1.0}
+  otlp:
+    tracing:
+      endpoint: ${OTEL_EXPORTER_OTLP_ENDPOINT:http://localhost:4318/v1/traces}
+
+logging:
+  structured:
+    format:
+      console: logstash
 
 ---
 # Config Server import, active for every profile EXCEPT kubernetes.

@@ -1,0 +1,41 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: eureka-server
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets: [host.docker.internal:8761]
+        labels:
+          application: eureka-server
+  - job_name: api-gateway
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets: [host.docker.internal:8072]
+        labels:
+          application: api-gateway
+  - job_name: department-service
+    metrics_path: /department/actuator/prometheus
+    static_configs:
+      - targets: [host.docker.internal:8082]
+        labels:
+          application: department-service
+  - job_name: enrollment-service
+    metrics_path: /enrollment/actuator/prometheus
+    static_configs:
+      - targets: [host.docker.internal:8083]
+        labels:
+          application: enrollment-service
+  - job_name: course-service
+    metrics_path: /course/actuator/prometheus
+    static_configs:
+      - targets: [host.docker.internal:8084]
+        labels:
+          application: course-service
+  - job_name: student-service
+    metrics_path: /student/actuator/prometheus
+    static_configs:
+      - targets: [host.docker.internal:8085]
+        labels:
+          application: student-service

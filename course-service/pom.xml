@@ -29,10 +29,11 @@
           SonarQube settings. The Scanner host is intentionally NOT hardcoded: it defaults to
           http://localhost:9000 and can be overridden with -Dsonar.host.url=... or SONAR_HOST_URL
           (e.g. when the scan runs from a container or CI). key/name are overridable the same way.
+          The quality gate is enforced by the Jenkinsfile (waitForQualityGate), so the scan itself
+          must not block a second time on sonar.qualitygate.wait.
         -->
         <sonar.projectKey>course-service</sonar.projectKey>
         <sonar.projectName>Course Service</sonar.projectName>
-        <sonar.qualitygate.wait>true</sonar.qualitygate.wait>
         <sonar.coverage.jacoco.xmlReportPaths>${project.build.directory}/site/jacoco/jacoco.xml</sonar.coverage.jacoco.xmlReportPaths>
         <sonar.coverage.exclusions>**/CourseServiceApplication.java,**/config/**</sonar.coverage.exclusions>
     </properties>
@@ -77,6 +78,18 @@
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-actuator</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>io.micrometer</groupId>
+            <artifactId>micrometer-registry-prometheus</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>io.micrometer</groupId>
+            <artifactId>micrometer-tracing-bridge-otel</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>io.opentelemetry</groupId>
+            <artifactId>opentelemetry-exporter-otlp</artifactId>
         </dependency>
 
         <dependency>

@@ -7,7 +7,7 @@ services:
       MYSQL_PASSWORD: ${MYSQL_PASSWORD:-department-dev-password}
       MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-department-root-dev-password}
     ports:
-      - "3306:3306"
+      - "3310:3306"
     volumes:
       - department-mysql-data:/var/lib/mysql
     healthcheck:

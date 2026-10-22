@@ -53,7 +53,8 @@ public class SecurityConfig {
     private static final String[] ACTUATOR_PUBLIC_PATHS = {
             "/actuator/health",
             "/actuator/health/**",
-            "/actuator/info"
+            "/actuator/info",
+            "/actuator/prometheus"
     };
 
     @Value("${gateway.security.client-id:api-gateway}")
@@ -75,7 +76,7 @@ public class SecurityConfig {
                     // 1. CORS Preflight: Always permit HTTP OPTIONS without authentication
                     exchanges.pathMatchers(HttpMethod.OPTIONS).permitAll();
 
-                    // 2. Health & Info Actuator probes: Public for container orchestrators
+                    // 2. Read-only Actuator probes: Public for orchestrators and Prometheus
                     exchanges.pathMatchers(ACTUATOR_PUBLIC_PATHS).permitAll();
 
                     // 3. Swagger / OpenAPI documentation: Public in dev/staging, configurable in production
@@ -87,6 +88,13 @@ public class SecurityConfig {
 
                     // 4. Runtime Gateway routes management (Actuator): Restricted to ADMIN
                     exchanges.pathMatchers("/actuator/gateway/**").hasRole("ADMIN");
+
+                    // 4b. Circuit breaker fallback endpoints: permitAll BEFORE the
+                    // catch-all below. Without this a breaker that opens for an
+                    // authenticated caller would answer 403 instead of the 503 that
+                    // tells the client to retry, hiding the real failure. These paths
+                    // carry no data, only the name of the service that is unavailable.
+                    exchanges.pathMatchers("/fallback/**").permitAll();
 
                     // 5. Fine-grained Role-Based Access Control (RBAC):
                     // Specific HTTP method + path rules MUST come BEFORE generic authenticated()
