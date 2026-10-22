@@ -29,16 +29,11 @@ credentials:
   system:
     domainCredentials:
       - credentials:
-          # Consumed by the Jenkinsfile through withCredentials(). The default is
-          # the credential that sonar-init enforces on the SonarQube instance
-          # (docker-compose.sonar.yml); override both with SONAR_USER /
-          # SONAR_PASSWORD in .env.
-          - usernamePassword:
+          - string:
               scope: GLOBAL
-              id: "sonar-creds"
-              username: "${SONAR_USER:-admin}"
-              password: "${SONAR_PASSWORD:-course-service-sonar}"
-              description: "SonarQube credentials (SONAR_USER / SONAR_PASSWORD)"
+              id: "sonar-token"
+              secret: "${SONAR_TOKEN}"
+              description: "SonarQube token (SONAR_TOKEN)"
 
 # No sonarGlobalConfiguration on purpose: that plugin registers a webhook at
 # http://host.docker.internal:8090/sonar-webhook-hook/..., which SonarQube
