@@ -286,6 +286,18 @@ services, so the same Jaeger instance receives traces from either deployment mod
 Sampling defaults to 100% for local development and can be adjusted with
 `TRACING_SAMPLING_PROBABILITY`.
 
+On Docker Engine for Linux the `host.docker.internal` name is not resolved by default, so
+every service in `docker-compose.yml` declares
+`extra_hosts: ["host.docker.internal:host-gateway"]`. Without it the OTLP exporter logs
+`UnknownHostException: host.docker.internal` and no trace reaches Jaeger. Docker Desktop
+resolves the name natively and ignores the mapping.
+
+A request is traceable across services: the Feign clients of `course-service` and
+`enrollment-service` are instrumented with `feign-micrometer`, so every call creates a
+CLIENT span and propagates the W3C trace context (`traceparent`) to the called service.
+The resulting trace shows the caller server span, the Feign client span and the callee
+server span in one place in Jaeger.
+
 Loki stores container logs and Grafana Alloy discovers Docker containers through the
 Docker socket and forwards their structured JSON logs to Loki. Logs are available in
 Grafana through the provisioned Loki data source. The Alloy container requires Docker
@@ -313,6 +325,12 @@ curl http://localhost:8085/student/actuator/prometheus
 
 The Actuator exposure is limited to health, info, and Prometheus metrics. Console
 logs use Spring Boot's structured JSON format for collection by Alloy and Loki.
+
+`feign-micrometer` registers the Feign calls under the same metric name as Spring Boot's
+own HTTP client instrumentation (`http.client.requests`) but with a different set of tag
+keys, which Prometheus rejects. `ObservabilityConfig` denies the Feign variant so the
+canonical metric stays exposed and the registry stays consistent; the Feign calls stay
+visible as client spans in the traces.
 
 For the proposed resilience, messaging, CI/CD, security, and deployment roadmap, see
 [`ARCHITECTURE-ROADMAP.md`](./ARCHITECTURE-ROADMAP.md).
