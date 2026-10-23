@@ -59,7 +59,10 @@ so every value in the table below can still be overridden per environment.
 | OpenAPI / Swagger | `SPRINGDOC_SWAGGER_UI_PATH`, `SPRINGDOC_API_DOCS_PATH`, `APP_OPENAPI_TITLE`, `APP_OPENAPI_VERSION`, `APP_OPENAPI_DESCRIPTION` | `/swagger-ui.html`, `/v3/api-docs`, … |
 | MySQL container   | `MYSQL_IMAGE`, `MYSQL_ROOT_PASSWORD`, `DB_CONTAINER_NAME`, `DB_CONTAINER_PORT`, `DB_HOST_PORT`                   | `mysql:8.0`, `rootpass`, … |
 | Service container | `SERVICE_IMAGE`, `SERVICE_CONTAINER_NAME`                                                                       | `course-service:latest`, `course-service` |
-| SonarQube stack   | `SONAR_PORT`, `SONAR_IMAGE`, `SONAR_CONTAINER_NAME`, `SONAR_DB_IMAGE`, `SONAR_DB_CONTAINER_NAME`, `SONAR_DB_USER`, `SONAR_DB_PASSWORD`, `SONAR_DB_NAME`, `SONAR_JDBC_URL`, `SONAR_ES_BOOTSTRAP_CHECKS_DISABLE` | `9000`, `sonarqube:10.6-community`, … |
+| SonarQube stack   | `SONAR_PORT`, `SONAR_IMAGE`, `SONAR_CONTAINER_NAME`, `SONAR_DB_IMAGE`, `SONAR_DB_CONTAINER_NAME`, `SONAR_DB_USER`, `SONAR_DB_PASSWORD`, `SONAR_DB_NAME`, `SONAR_JDBC_URL`, `SONAR_ES_BOOTSTRAP_CHECKS_DISABLE` | `9000`, `sonarqube:26.10.0.133078-community`, … |
+
+Credentials for the CI pipeline (SonarQube token) live in `course-service/.env` as
+`SONAR_TOKEN` (git-ignored; copy `course-service/.env.example` as a starting point).
 
 Key behaviour:
 
@@ -236,13 +239,24 @@ docker compose logs -f course-service
 ```bash
 docker compose -f docker-compose.sonar.yml up -d   # SonarQube + PostgreSQL on http://localhost:9000
 mvn -B verify                                       # produces target/site/jacoco/jacoco.xml
-mvn -B sonar:sonar
+mvn -B sonar:sonar -Dsonar.token=$SONAR_TOKEN
 ```
 
 The scan reads the JaCoCo XML report and the exclusions configured in `pom.xml`
 (`CourseServiceApplication`, `config/**`).
 
----
+**One-time manual setup** (no automation; the scanner needs a token and the pipeline needs
+a quality gate):
+
+1. Start the stack (above) and open `http://localhost:9000`. First login is `admin` / `admin`
+   and SonarQube 26.10 forces an immediate password change (12+ characters).
+2. My Account → Security → Generate Token (name it e.g. `jenkins-ci`).
+3. Quality Gates → create a gate named `course-service` with error-level conditions:
+   `new_violations > 0`, `new_coverage < 90`, `new_duplicated_lines_density > 3`
+   (leave "All new Security Hotspots reviewed" out), then **Set as Default**
+   (or assign the gate to the `course-service` project).
+4. Put the token in `course-service/.env` as `SONAR_TOKEN=<token>` — the Jenkins controller
+   injects it as the `sonar-token` credential (see `.env.example`).
 
 ## 9. CI (Jenkins)
 
@@ -251,8 +265,17 @@ quality gate → Docker build → compose smoke test, publishing the JUnit and J
 smoke test starts the service from the image just built and fails the build if it never reports
 `UP` on `/actuator/health`.
 
+The scanner authenticates with the `sonar-token` Jenkins credential (a plain string sourced
+from the `SONAR_TOKEN` environment variable, wired by `jenkins/casc.yaml`); no SonarQube server
+entry is registered and no webhook is used. SonarQube 26.10 rejects webhook targets that
+resolve to site-local addresses such as `host.docker.internal`, so the pipeline instead polls
+the web API for the verdict: it reads the `ceTaskId` from `target/sonar/report-task.txt`, waits
+for `/api/ce/task` to reach `SUCCESS`, then evaluates `/api/qualitygates/project_status`
+(`OK`/`WARN` pass, anything else fails the build). `jq` is required by that stage and is baked
+into the controller image (`Dockerfile.jenkins`).
+
 It expects a JDK tool named `jdk17`, a Maven tool named `maven-3.9` (both declared in
-`jenkins/casc.yaml`) and a SonarQube server named `sonarqube`; everything else is overridable
+`jenkins/casc.yaml`) and the `sonar-token` credential; everything else is overridable
 through *Build with Parameters*. The Jenkins controller used for this pipeline is described by
 `docker-compose.jenkins.yml` and configured by `jenkins/casc.yaml`.
 
@@ -285,6 +308,7 @@ course-service/
 ├── docker-compose.yml          # standalone stack: app + MySQL
 ├── docker-compose.jenkins.yml  # local Jenkins controller
 ├── docker-compose.sonar.yml    # SonarQube + PostgreSQL
+├── .env.example                # template for SONAR_TOKEN (git-ignored .env)
 ├── Jenkinsfile
 ├── jenkins/casc.yaml           # Configuration as Code for the controller
 ├── pom.xml

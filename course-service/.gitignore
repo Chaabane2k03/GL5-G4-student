@@ -29,7 +29,6 @@ Thumbs.db
 
 # Env / secrets
 .env
-.env.*
 
 # Sonar scanner working dir
 .scannerwork/
