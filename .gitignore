@@ -40,10 +40,7 @@ Thumbs.db
 
 # Env / secrets
 .env
-.env.*
 !.env.example
 .m2
 
-# Ignore jenkins directory
-# holds the controller's Configuration as Code and must stay tracked.
 jenkins/

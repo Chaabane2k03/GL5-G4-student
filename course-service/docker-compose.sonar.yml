@@ -42,18 +42,11 @@ services:
       start_period: 90s
     restart: unless-stopped
 
-  # One-shot bootstrap that makes the stack usable with no manual UI step.
-  #
-  #   1. Pins the admin credential to SONAR_USER / SONAR_PASSWORD. A fresh
-  #      SonarQube 26.10 ships admin/admin with the forced-password-change flag
-  #      set, and an instance upgraded from 10.x keeps whatever password it had,
-  #      so neither can be assumed by the pipeline.
-  #   2. Creates the "course-service" quality gate and makes it the instance
-  #      default. The built-in "Sonar way" gate also requires every new security
-  #      hotspot to be reviewed, which no automated build can satisfy.
-  #
-  # It only uses the public web API (no database access) and its failure never
-  # takes the rest of the stack down: it logs an actionable message and exits.
+  # SonarQube is configured manually (one-time): first login admin/admin -> forced
+  # password change, generate a user token, create the "course-service" quality gate
+  # and set it as default. See course-service/.env.example and README section 8.
+
+volumes:
   sonar-db-data:
   sonar-data:
   sonar-extensions:

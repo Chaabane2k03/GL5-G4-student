@@ -29,7 +29,8 @@
           SonarQube settings. The Scanner host is intentionally NOT hardcoded: it defaults to
           http://localhost:9000 and can be overridden with -Dsonar.host.url=... or SONAR_HOST_URL
           (e.g. when the scan runs from a container or CI). key/name are overridable the same way.
-          The quality gate is enforced by the Jenkinsfile (waitForQualityGate), so the scan itself
+          The quality gate is enforced by the Jenkinsfile (API polling of
+          /api/ce/task + /api/qualitygates/project_status), so the scan itself
           must not block a second time on sonar.qualitygate.wait.
         -->
         <sonar.projectKey>course-service</sonar.projectKey>
