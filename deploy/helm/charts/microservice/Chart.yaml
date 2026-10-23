@@ -1,0 +1,15 @@
+apiVersion: v2
+name: microservice
+description: >-
+  Generic Helm chart for a Spring Boot microservice of the GL5-G4 Student
+  platform: Deployment + ClusterIP Service, configuration split between a
+  ConfigMap (non-sensitive) and a Secret (credentials), Actuator-based
+  liveness/readiness probes, resource requests/limits, HPA, PodDisruptionBudget
+  and graceful shutdown. One instance is deployed per business service.
+type: application
+version: 0.1.0
+appVersion: "1.0.0"
+keywords:
+  - spring-boot
+  - microservice
+  - gl5-g4-student

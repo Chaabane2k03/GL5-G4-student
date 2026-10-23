@@ -1,0 +1,132 @@
+# ---------------------------------------------------------------------------
+# Values for the local Kubernetes environment (Minikube, docker driver).
+#
+# The images are the ones built by `docker compose build`; they are loaded
+# into the Minikube node with `minikube image load`, so no image registry is
+# needed here. The credentials are development ones and are committed on
+# purpose: they only exist inside the throw-away Minikube cluster.
+#
+# The memory limits are lower than the ones of the chart: a single Minikube
+# node runs the whole stack (4 databases, 5 microservices, Keycloak, the
+# frontend), so everything has to fit in the memory of the node.
+# ---------------------------------------------------------------------------
+
+frontend:
+  ingress:
+    className: nginx
+    host: gl5-g4.test
+
+# The identity provider keeps its database in the pod's ephemeral filesystem:
+# the realm is re-imported on every fresh pod, which makes the demo
+# reproducible after a restart.
+keycloak:
+  db:
+    vendor: dev-file
+  persistence:
+    enabled: false
+
+api-gateway:
+  env:
+    # The observability stack runs on the Docker host, which the Minikube
+    # nodes reach through the Docker bridge gateway.
+    OTEL_EXPORTER_OTLP_ENDPOINT: http://192.168.49.1:4318/v1/traces
+    KEYCLOAK_ISSUER_URI: http://keycloak:8080/realms/gl5
+  javaOpts: "-XX:MaxRAMPercentage=45 -XX:+ExitOnOutOfMemoryError"
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: "1"
+      memory: 640Mi
+
+student-service:
+  env:
+    OTEL_EXPORTER_OTLP_ENDPOINT: http://192.168.49.1:4318/v1/traces
+  javaOpts: "-XX:MaxRAMPercentage=45 -XX:+ExitOnOutOfMemoryError"
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: "1"
+      memory: 640Mi
+
+course-service:
+  env:
+    OTEL_EXPORTER_OTLP_ENDPOINT: http://192.168.49.1:4318/v1/traces
+  javaOpts: "-XX:MaxRAMPercentage=45 -XX:+ExitOnOutOfMemoryError"
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: "1"
+      memory: 640Mi
+
+department-service:
+  env:
+    OTEL_EXPORTER_OTLP_ENDPOINT: http://192.168.49.1:4318/v1/traces
+  javaOpts: "-XX:MaxRAMPercentage=45 -XX:+ExitOnOutOfMemoryError"
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: "1"
+      memory: 640Mi
+
+enrollment-service:
+  env:
+    OTEL_EXPORTER_OTLP_ENDPOINT: http://192.168.49.1:4318/v1/traces
+  javaOpts: "-XX:MaxRAMPercentage=45 -XX:+ExitOnOutOfMemoryError"
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: "1"
+      memory: 640Mi
+
+# The databases run inside the cluster on Minikube. The InnoDB buffer pool is
+# shrunk to 64 MB: the default (128 MB per instance, plus the performance
+# schema) does not fit in the node together with the rest of the stack.
+student-db:
+  config:
+    args:
+      - --innodb-buffer-pool-size=64M
+      - --performance-schema=OFF
+
+course-db:
+  config:
+    args:
+      - --innodb-buffer-pool-size=64M
+      - --performance-schema=OFF
+
+department-db:
+  config:
+    args:
+      - --innodb-buffer-pool-size=64M
+      - --performance-schema=OFF
+
+enrollment-db:
+  config:
+    args:
+      - --innodb-buffer-pool-size=64M
+      - --performance-schema=OFF
+
+networkPolicy:
+  enabled: true
+  ingressNamespace: ingress-nginx
+  ingressCidrBlocks: []
+  observabilityNamespace: observability
+
+# The databases run inside the cluster on Minikube.
+rds:
+  enabled: false
+
+# The credentials are created by the chart on Minikube.
+externalSecrets:
+  enabled: false
+
+

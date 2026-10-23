@@ -1,0 +1,10 @@
+apiVersion: v2
+name: mysql
+description: >-
+  Helm chart for the MySQL database of a microservice of the GL5-G4 Student
+  platform. One StatefulSet per business service, each with its own
+  PersistentVolumeClaim, Secret and ClusterIP Service, so the microservices
+  keep one database each and never share credentials.
+type: application
+version: 0.1.0
+appVersion: "8.4"

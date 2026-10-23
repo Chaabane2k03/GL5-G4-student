@@ -1,0 +1,32 @@
+{{- if .Values.rds.enabled }}
+{{- /*
+Amazon RDS (EKS only).
+
+The databases are hosted outside the cluster, in the private subnets of the
+VPC. An ExternalName Service keeps the exact same DNS name as the Minikube
+MySQL Service, so the JDBC URL of the applications is identical in the two
+environments and the code never has to change.
+*/ -}}
+{{- range $db := .Values.rds.databases }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $db.name }}
+  labels:
+    app.kubernetes.io/part-of: gl5-student
+    app.kubernetes.io/managed-by: {{ $.Release.Service }}
+    app.kubernetes.io/component: database
+  annotations:
+    # The Service is only a DNS alias: no endpoint of the cluster is created.
+    external-dns.alpha.kubernetes.io/hostname: {{ $db.endpoint | quote }}
+spec:
+  type: ExternalName
+  externalName: {{ $db.endpoint }}
+  ports:
+    - name: mysql
+      port: 3306
+      targetPort: 3306
+      protocol: TCP
+---
+{{- end }}
+{{- end }}

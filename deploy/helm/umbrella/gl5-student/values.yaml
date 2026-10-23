@@ -1,0 +1,333 @@
+# ---------------------------------------------------------------------------
+# Default values of the GL5-G4 Student umbrella chart.
+#
+# The environment files (values/minikube/... and values/eks/...) override
+# what is environment-specific: image registry, credentials, ingress class,
+# IRSA roles, observability endpoints. Everything that is the same in the two
+# environments lives here.
+#
+# The sub-charts are installed under an alias, so each instance reads its
+# values from its own key below (api-gateway, student-service, ...). The
+# shared defaults (probes, resources, security context) come from the
+# generic microservice chart itself.
+# ---------------------------------------------------------------------------
+
+# --- Frontend -------------------------------------------------------------
+frontend:
+  replicaCount: 2
+  fullnameOverride: frontend
+  ingress:
+    enabled: true
+    className: nginx
+    host: gl5-g4.local
+
+# --- Identity provider ----------------------------------------------------
+# The API Gateway is an OAuth2 Resource Server: it validates the JWT against
+# this realm. Keycloak stays inside the cluster, it is never exposed by the
+# Ingress.
+keycloak:
+  fullnameOverride: keycloak
+  replicaCount: 1
+  hostname: http://keycloak:8080
+  realm:
+    name: gl5
+    clientId: api-gateway
+  resources:
+    requests:
+      cpu: 200m
+      memory: 512Mi
+    limits:
+      cpu: "1"
+      memory: 1Gi
+
+# --- API Gateway ----------------------------------------------------------
+api-gateway:
+  enabled: true
+  fullnameOverride: api-gateway
+  containerPort: 8072
+  contextPath: ""
+  image:
+    repository: gl5-g4-api-gateway
+    tag: local
+    pullPolicy: IfNotPresent
+  env:
+    SPRING_PROFILES_ACTIVE: kubernetes
+    SERVER_PORT: "8072"
+    MANAGEMENT_ENDPOINTS: health,info,gateway,prometheus
+  config:
+    # Routes resolve to the in-cluster Services (Kubernetes DNS) instead of
+    # lb:// through Eureka.
+    DEPARTMENT_SERVICE_URL: http://department-service
+    COURSE_SERVICE_URL: http://course-service
+    ENROLLMENT_SERVICE_URL: http://enrollment-service
+    STUDENT_SERVICE_URL: http://student-service
+  service:
+    port: 80
+  resources:
+    requests:
+      cpu: 200m
+      memory: 512Mi
+    limits:
+      cpu: "1"
+      memory: 1Gi
+
+# --- Student service ------------------------------------------------------
+student-service:
+  enabled: true
+  fullnameOverride: student-service
+  containerPort: 8085
+  contextPath: /student
+  image:
+    repository: gl5-g4-student-service
+    tag: local
+    pullPolicy: IfNotPresent
+  env:
+    SPRING_PROFILES_ACTIVE: kubernetes
+    SERVER_PORT: "8085"
+  config:
+    SPRING_DATASOURCE_URL: jdbc:mysql://student-db:3306/studentdb?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC
+    DEPARTMENT_SERVICE_URL: http://department-service
+  secretData:
+    SPRING_DATASOURCE_USERNAME: student
+    SPRING_DATASOURCE_PASSWORD: student-dev-password
+  service:
+    port: 80
+
+# --- Course service -------------------------------------------------------
+course-service:
+  enabled: true
+  fullnameOverride: course-service
+  containerPort: 8084
+  contextPath: /course
+  image:
+    repository: gl5-g4-course-service
+    tag: local
+    pullPolicy: IfNotPresent
+  env:
+    SPRING_PROFILES_ACTIVE: kubernetes
+    SERVER_PORT: "8084"
+  config:
+    SPRING_DATASOURCE_URL: jdbc:mysql://course-db:3306/course_db?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC
+    DEPARTMENT_SERVICE_URL: http://department-service
+  secretData:
+    SPRING_DATASOURCE_USERNAME: course_user
+    SPRING_DATASOURCE_PASSWORD: course-dev-password
+  service:
+    port: 80
+
+# --- Department service ---------------------------------------------------
+department-service:
+  enabled: true
+  fullnameOverride: department-service
+  containerPort: 8082
+  contextPath: /department
+  image:
+    repository: gl5-g4-department-service
+    tag: local
+    pullPolicy: IfNotPresent
+  env:
+    SPRING_PROFILES_ACTIVE: kubernetes
+    SERVER_PORT: "8082"
+  config:
+    SPRING_DATASOURCE_URL: jdbc:mysql://department-db:3306/departmentdb?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC
+  secretData:
+    SPRING_DATASOURCE_USERNAME: department
+    SPRING_DATASOURCE_PASSWORD: department-dev-password
+  service:
+    port: 80
+
+# --- Enrollment service ---------------------------------------------------
+enrollment-service:
+  enabled: true
+  fullnameOverride: enrollment-service
+  containerPort: 8083
+  contextPath: /enrollment
+  image:
+    repository: gl5-g4-enrollment-service
+    tag: local
+    pullPolicy: IfNotPresent
+  env:
+    SPRING_PROFILES_ACTIVE: kubernetes
+    SERVER_PORT: "8083"
+  config:
+    SPRING_DATASOURCE_URL: jdbc:mysql://enrollment-db:3306/enrollmentdb?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC
+    STUDENT_SERVICE_URL: http://student-service
+    COURSE_SERVICE_URL: http://course-service
+  secretData:
+    SPRING_DATASOURCE_USERNAME: enrollment
+    SPRING_DATASOURCE_PASSWORD: enrollment-dev-password
+  service:
+    port: 80
+
+# --- Databases (Minikube) -------------------------------------------------
+student-db:
+  enabled: true
+  fullnameOverride: student-db
+  database: studentdb
+  username: student
+  password: student-dev-password
+  rootPassword: student-root-dev-password
+
+course-db:
+  enabled: true
+  fullnameOverride: course-db
+  database: course_db
+  username: course_user
+  password: course-dev-password
+  rootPassword: course-root-dev-password
+
+department-db:
+  enabled: true
+  fullnameOverride: department-db
+  database: departmentdb
+  username: department
+  password: department-dev-password
+  rootPassword: department-root-dev-password
+
+enrollment-db:
+  enabled: true
+  fullnameOverride: enrollment-db
+  database: enrollmentdb
+  username: enrollment
+  password: enrollment-dev-password
+  rootPassword: enrollment-root-dev-password
+
+# --- NetworkPolicies ------------------------------------------------------
+networkPolicy:
+  enabled: true
+  # Namespace of the Nginx ingress controller allowed to reach the frontend.
+  ingressNamespace: ingress-nginx
+  # Additional source ranges allowed to reach the frontend. On EKS the ALB in
+  # "ip" mode sends the client traffic from the VPC, so the client CIDRs have
+  # to be allowed here.
+  ingressCidrBlocks: []
+  # Namespace of the observability stack, allowed to scrape the metrics.
+  observabilityNamespace: observability
+
+  # Container ports of each component: the NetworkPolicy ports are evaluated
+  # on the pod port, after the Service DNAT.
+  frontend:
+    name: frontend
+    port: 80
+  gateway:
+    name: api-gateway
+    port: 8072
+  identity:
+    name: keycloak
+    port: 8080
+  microservices:
+    - name: student-service
+      port: 8085
+    - name: course-service
+      port: 8084
+    - name: department-service
+      port: 8082
+    - name: enrollment-service
+      port: 8083
+  databases:
+    - name: student-db
+      port: 3306
+      users:
+        - student-service
+    - name: course-db
+      port: 3306
+      users:
+        - course-service
+    - name: department-db
+      port: 3306
+      users:
+        - department-service
+    - name: enrollment-db
+      port: 3306
+      users:
+        - enrollment-service
+  # Service-to-service calls that do not go through the API Gateway.
+  calls:
+    - from: student-service
+      to:
+        - department-service
+    - from: course-service
+      to:
+        - department-service
+    - from: enrollment-service
+      to:
+        - student-service
+        - course-service
+
+# --- Amazon RDS (EKS only) ------------------------------------------------
+# On EKS MySQL is replaced by Amazon RDS, which lives outside the cluster.
+# An ExternalName Service keeps the same DNS name as the Minikube Service, so
+# the JDBC URLs of the applications do not change between the two
+# environments.
+rds:
+  enabled: false
+  databases:
+    - name: student-db
+      endpoint: student-db.cluster-xxxxx.rds.amazonaws.com
+    - name: course-db
+      endpoint: course-db.cluster-xxxxx.rds.amazonaws.com
+    - name: department-db
+      endpoint: department-db.cluster-xxxxx.rds.amazonaws.com
+    - name: enrollment-db
+      endpoint: enrollment-db.cluster-xxxxx.rds.amazonaws.com
+
+# --- External Secrets Operator (EKS only) ---------------------------------
+externalSecrets:
+  enabled: false
+  refreshInterval: 1h
+  secretStore:
+    name: aws-secrets-manager
+    kind: ClusterSecretStore
+  aws:
+    region: eu-west-1
+    # ServiceAccount annotated for IRSA, used by the operator to call
+    # AWS Secrets Manager.
+    serviceAccount: external-secrets
+    # eks.amazonaws.com/role-arn of the IAM role backing the ServiceAccount.
+    roleArn: arn:aws:iam::000000000000:role/gl5-external-secrets
+  # Credentials of every service, synchronised from AWS Secrets Manager.
+  services:
+    - name: student-service
+      remoteRef: gl5/student-service
+      properties:
+        - SPRING_DATASOURCE_USERNAME
+        - SPRING_DATASOURCE_PASSWORD
+    - name: course-service
+      remoteRef: gl5/course-service
+      properties:
+        - SPRING_DATASOURCE_USERNAME
+        - SPRING_DATASOURCE_PASSWORD
+    - name: department-service
+      remoteRef: gl5/department-service
+      properties:
+        - SPRING_DATASOURCE_USERNAME
+        - SPRING_DATASOURCE_PASSWORD
+    - name: enrollment-service
+      remoteRef: gl5/enrollment-service
+      properties:
+        - SPRING_DATASOURCE_USERNAME
+        - SPRING_DATASOURCE_PASSWORD
+    - name: student-db
+      remoteRef: gl5/student-db
+      properties:
+        - mysql-user
+        - mysql-password
+        - mysql-root-password
+    - name: course-db
+      remoteRef: gl5/course-db
+      properties:
+        - mysql-user
+        - mysql-password
+        - mysql-root-password
+    - name: department-db
+      remoteRef: gl5/department-db
+      properties:
+        - mysql-user
+        - mysql-password
+        - mysql-root-password
+    - name: enrollment-db
+      remoteRef: gl5/enrollment-db
+      properties:
+        - mysql-user
+        - mysql-password
+        - mysql-root-password

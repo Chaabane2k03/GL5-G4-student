@@ -1,0 +1,468 @@
+{{- if .Values.networkPolicy.enabled }}
+{{- $np := .Values.networkPolicy }}
+{{- $instance := .Release.Name }}
+# ---------------------------------------------------------------------------
+# NetworkPolicies of the gl5-student namespace.
+#
+# The rule is deny by default: nothing enters or leaves the namespace unless
+# one of the policies below explicitly allows it. The resulting traffic graph
+# is:
+#
+#   ingress controller (or VPC on EKS) -> frontend -> gateway -> microservices
+#                                                           -> own database
+#
+# The backend microservices therefore only accept requests coming from the
+# API Gateway (and from each other, for the service-to-service calls that do
+# not go through the gateway).
+#
+# The ports are the container ports: a NetworkPolicy is evaluated on the pod,
+# after the Service DNAT, so the Service port (80) is not the right value.
+# ---------------------------------------------------------------------------
+
+# --- Default deny ---------------------------------------------------------
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny
+  labels:
+    app.kubernetes.io/part-of: gl5-student
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress
+
+---
+# --- DNS ------------------------------------------------------------------
+# Name resolution has to be allowed for every pod, otherwise no Service can
+# be reached at all.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-dns-egress
+  labels:
+    app.kubernetes.io/part-of: gl5-student
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+spec:
+  podSelector: {}
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+
+---
+# --- Ingress controller -> frontend ---------------------------------------
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-ingress-to-frontend
+  labels:
+    app.kubernetes.io/part-of: gl5-student
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: {{ $np.frontend.name }}
+      app.kubernetes.io/instance: {{ $instance }}
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        {{- with $np.ingressNamespace }}
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ . }}
+        {{- end }}
+        {{- range $cidr := $np.ingressCidrBlocks }}
+        - ipBlock:
+            cidr: {{ $cidr }}
+        {{- end }}
+      ports:
+        - protocol: TCP
+          port: {{ $np.frontend.port }}
+
+---
+# --- Frontend -> API Gateway ----------------------------------------------
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-frontend-to-gateway
+  labels:
+    app.kubernetes.io/part-of: gl5-student
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: {{ $np.gateway.name }}
+      app.kubernetes.io/instance: {{ $instance }}
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: {{ $np.frontend.name }}
+              app.kubernetes.io/instance: {{ $instance }}
+      ports:
+        - protocol: TCP
+          port: {{ $np.gateway.port }}
+
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-frontend-egress-to-gateway
+  labels:
+    app.kubernetes.io/part-of: gl5-student
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: {{ $np.frontend.name }}
+      app.kubernetes.io/instance: {{ $instance }}
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: {{ $np.gateway.name }}
+              app.kubernetes.io/instance: {{ $instance }}
+      ports:
+        - protocol: TCP
+          port: {{ $np.gateway.port }}
+
+---
+# --- API Gateway -> identity provider -------------------------------------
+# The gateway fetches the signing keys of the realm to validate the tokens.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-gateway-to-{{ $np.identity.name }}
+  labels:
+    app.kubernetes.io/part-of: gl5-student
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: {{ $np.identity.name }}
+      app.kubernetes.io/instance: {{ $instance }}
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: {{ $np.gateway.name }}
+              app.kubernetes.io/instance: {{ $instance }}
+      ports:
+        - protocol: TCP
+          port: {{ $np.identity.port }}
+
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-gateway-egress-to-{{ $np.identity.name }}
+  labels:
+    app.kubernetes.io/part-of: gl5-student
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: {{ $np.gateway.name }}
+      app.kubernetes.io/instance: {{ $instance }}
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: {{ $np.identity.name }}
+              app.kubernetes.io/instance: {{ $instance }}
+      ports:
+        - protocol: TCP
+          port: {{ $np.identity.port }}
+
+---
+# --- Frontend -> identity provider ----------------------------------------
+# The local demo UI obtains a Keycloak token through the same-origin Nginx
+# relay. Keycloak remains ClusterIP-only and is not exposed by the Ingress.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-frontend-to-{{ $np.identity.name }}
+  labels:
+    app.kubernetes.io/part-of: gl5-student
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: {{ $np.identity.name }}
+      app.kubernetes.io/instance: {{ $instance }}
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: {{ $np.frontend.name }}
+              app.kubernetes.io/instance: {{ $instance }}
+      ports:
+        - protocol: TCP
+          port: {{ $np.identity.port }}
+
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-frontend-egress-to-{{ $np.identity.name }}
+  labels:
+    app.kubernetes.io/part-of: gl5-student
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: {{ $np.frontend.name }}
+      app.kubernetes.io/instance: {{ $instance }}
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: {{ $np.identity.name }}
+              app.kubernetes.io/instance: {{ $instance }}
+      ports:
+        - protocol: TCP
+          port: {{ $np.identity.port }}
+
+---
+# --- API Gateway -> microservices -----------------------------------------
+{{- range $svc := $np.microservices }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-gateway-to-{{ $svc.name }}
+  labels:
+    app.kubernetes.io/part-of: gl5-student
+    app.kubernetes.io/managed-by: {{ $.Release.Service }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: {{ $svc.name }}
+      app.kubernetes.io/instance: {{ $instance }}
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: {{ $np.gateway.name }}
+              app.kubernetes.io/instance: {{ $instance }}
+      ports:
+        - protocol: TCP
+          port: {{ $svc.port }}
+---
+{{- end }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-gateway-egress-to-microservices
+  labels:
+    app.kubernetes.io/part-of: gl5-student
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: {{ $np.gateway.name }}
+      app.kubernetes.io/instance: {{ $instance }}
+  policyTypes:
+    - Egress
+  egress:
+    {{- range $svc := $np.microservices }}
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: {{ $svc.name }}
+              app.kubernetes.io/instance: {{ $instance }}
+      ports:
+        - protocol: TCP
+          port: {{ $svc.port }}
+    {{- end }}
+
+---
+# --- Microservice -> microservice ----------------------------------------
+# The calls that do not go through the API Gateway (the enrollment service
+# validating a student or a course, the course and student services reading
+# a department).
+{{- range $call := $np.calls }}
+{{- $from := $call.from }}
+{{- range $to := $call.to }}
+{{- $fromPort := 0 }}
+{{- $toPort := 0 }}
+{{- range $svc := $np.microservices }}
+{{- if eq $svc.name $from }}{{ $fromPort = $svc.port }}{{ end }}
+{{- if eq $svc.name $to }}{{ $toPort = $svc.port }}{{ end }}
+{{- end }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-{{ $from }}-to-{{ $to }}
+  labels:
+    app.kubernetes.io/part-of: gl5-student
+    app.kubernetes.io/managed-by: {{ $.Release.Service }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: {{ $to }}
+      app.kubernetes.io/instance: {{ $instance }}
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: {{ $from }}
+              app.kubernetes.io/instance: {{ $instance }}
+      ports:
+        - protocol: TCP
+          port: {{ $toPort }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-{{ $from }}-egress-to-{{ $to }}
+  labels:
+    app.kubernetes.io/part-of: gl5-student
+    app.kubernetes.io/managed-by: {{ $.Release.Service }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: {{ $from }}
+      app.kubernetes.io/instance: {{ $instance }}
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: {{ $to }}
+              app.kubernetes.io/instance: {{ $instance }}
+      ports:
+        - protocol: TCP
+          port: {{ $toPort }}
+{{- end }}
+---
+{{- end }}
+# --- Microservice -> its own database -------------------------------------
+{{- range $db := $np.databases }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-{{ $db.name }}-from-microservices
+  labels:
+    app.kubernetes.io/part-of: gl5-student
+    app.kubernetes.io/managed-by: {{ $.Release.Service }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: {{ $db.name }}
+      app.kubernetes.io/instance: {{ $instance }}
+  policyTypes:
+    - Ingress
+  ingress:
+    {{- range $user := $db.users }}
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: {{ $user }}
+              app.kubernetes.io/instance: {{ $instance }}
+      ports:
+        - protocol: TCP
+          port: {{ $db.port }}
+    {{- end }}
+---
+{{- range $user := $db.users }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-{{ $user }}-egress-to-{{ $db.name }}
+  labels:
+    app.kubernetes.io/part-of: gl5-student
+    app.kubernetes.io/managed-by: {{ $.Release.Service }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: {{ $user }}
+      app.kubernetes.io/instance: {{ $instance }}
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: {{ $db.name }}
+              app.kubernetes.io/instance: {{ $instance }}
+      ports:
+        - protocol: TCP
+          port: {{ $db.port }}
+---
+{{- end }}
+{{- end }}
+---
+# --- Observability --------------------------------------------------------
+# Prometheus scrapes the Actuator endpoints and the services export their
+# traces to the observability namespace.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-observability-scrape
+  labels:
+    app.kubernetes.io/part-of: gl5-student
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/component: microservice
+      app.kubernetes.io/instance: {{ $instance }}
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ $np.observabilityNamespace }}
+
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-observability-egress
+  labels:
+    app.kubernetes.io/part-of: gl5-student
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/instance: {{ $instance }}
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ $np.observabilityNamespace }}
+{{- end }}

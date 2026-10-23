@@ -1,0 +1,29 @@
+The GL5-G4 Student platform has been deployed in the namespace {{ .Release.Namespace }}.
+
+Components:
+  frontend        : http://{{ .Values.frontend.ingress.host }}{{ .Values.frontend.ingress.path }}
+  API gateway     : internal Service {{ .Values.frontend.gateway.service }} (never exposed)
+  microservices   : api-gateway, student-service, course-service, department-service, enrollment-service
+  databases       : {{- range $db := .Values.networkPolicy.databases }} {{ $db.name }}{{ end }}
+
+{{- if .Values.networkPolicy.enabled }}
+
+NetworkPolicies are enabled: the namespace denies everything by default and
+only allows the documented flows (ingress -> frontend -> gateway ->
+microservices -> database).
+{{- end }}
+
+{{- if .Values.rds.enabled }}
+
+The databases are Amazon RDS instances, reached through ExternalName Services
+that keep the same DNS names as the Minikube MySQL Services.
+{{- end }}
+
+{{- if .Values.externalSecrets.enabled }}
+
+The credentials are synchronised from AWS Secrets Manager by the External
+Secrets Operator.
+{{- end }}
+
+Follow the rollout with:
+  kubectl -n {{ .Release.Namespace }} get pods -w

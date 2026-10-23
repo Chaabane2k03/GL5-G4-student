@@ -1,0 +1,17 @@
+{{ .Chart.Name }} ({{ include "microservice.fullname" . }}) has been deployed.
+
+Service DNS (in-cluster):
+  http://{{ include "microservice.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.port }}{{ .Values.contextPath }}
+
+Probes:
+  liveness : {{ include "microservice.probePath" (dict "ctx" .Values.contextPath "path" .Values.probes.liveness.path) }}
+  readiness: {{ include "microservice.probePath" (dict "ctx" .Values.contextPath "path" .Values.probes.readiness.path) }}
+
+{{- if not .Values.serviceAccount.create }}
+
+WARNING: serviceAccount.create is false: the pod runs with the "default"
+ServiceAccount of the namespace.
+{{- end }}
+
+Reach the service from your workstation with:
+  kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "microservice.fullname" . }} 8080:{{ .Values.service.port }}

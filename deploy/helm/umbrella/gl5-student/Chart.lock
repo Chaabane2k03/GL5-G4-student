@@ -1,0 +1,36 @@
+dependencies:
+- name: frontend
+  repository: file://../../charts/frontend
+  version: 0.1.0
+- name: keycloak
+  repository: file://../../charts/keycloak
+  version: 0.1.0
+- name: microservice
+  repository: file://../../charts/microservice
+  version: 0.1.0
+- name: microservice
+  repository: file://../../charts/microservice
+  version: 0.1.0
+- name: microservice
+  repository: file://../../charts/microservice
+  version: 0.1.0
+- name: microservice
+  repository: file://../../charts/microservice
+  version: 0.1.0
+- name: microservice
+  repository: file://../../charts/microservice
+  version: 0.1.0
+- name: mysql
+  repository: file://../../charts/mysql
+  version: 0.1.0
+- name: mysql
+  repository: file://../../charts/mysql
+  version: 0.1.0
+- name: mysql
+  repository: file://../../charts/mysql
+  version: 0.1.0
+- name: mysql
+  repository: file://../../charts/mysql
+  version: 0.1.0
+digest: sha256:e6d635a54aa2701772704d52cf7b98235911534a3ada32e8f5821616e368fea1
+generated: "2026-10-22T12:19:26.455446433+01:00"
