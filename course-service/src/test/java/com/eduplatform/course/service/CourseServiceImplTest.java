@@ -629,6 +629,20 @@ class CourseServiceImplTest {
             assertThatThrownBy(() -> service.create(req))
                     .isInstanceOf(DuplicateCourseCodeException.class);
         }
+
+        @Test
+        void shouldDetectDuplicateFromMessageNamingCourseCodeConstraint() {
+            DataIntegrityViolationException ex =
+                    new DataIntegrityViolationException("stmt",
+                            new RuntimeException("Duplicate entry 'CS101' for key 'uk_course_code'"));
+            when(courseRepository.existsByCode("CS101")).thenReturn(false);
+            when(courseRepository.saveAndFlush(any(Course.class))).thenThrow(ex);
+
+            CourseRequest req = request("cs101");
+            assertThatThrownBy(() -> service.create(req))
+                    .isInstanceOf(DuplicateCourseCodeException.class)
+                    .hasMessageContaining("CS101");
+        }
     }
 
     @Nested

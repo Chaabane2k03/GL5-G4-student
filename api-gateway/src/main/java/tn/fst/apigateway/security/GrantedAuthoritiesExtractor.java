@@ -40,7 +40,7 @@ public class GrantedAuthoritiesExtractor implements Converter<Jwt, Collection<Gr
         Collection<GrantedAuthority> roleAuthorities = extractRoles(jwt);
 
         return Stream.concat(
-                standardAuthorities != null ? standardAuthorities.stream() : Stream.empty(),
+                Objects.requireNonNullElse(standardAuthorities, List.<GrantedAuthority>of()).stream(),
                 roleAuthorities.stream()
         ).collect(Collectors.toSet());
     }
@@ -79,7 +79,6 @@ public class GrantedAuthoritiesExtractor implements Converter<Jwt, Collection<Gr
         }
 
         return rawRoles.stream()
-                .filter(Objects::nonNull)
                 .map(String::trim)
                 .filter(r -> !r.isEmpty())
                 .map(r -> r.startsWith("ROLE_") ? r.toUpperCase() : "ROLE_" + r.toUpperCase())
@@ -88,13 +87,13 @@ public class GrantedAuthoritiesExtractor implements Converter<Jwt, Collection<Gr
     }
 
     private void addNormalizedRole(Set<String> rawRoles, String role) {
-        if (role != null && !role.isBlank()) {
+        if (!role.isBlank()) {
             rawRoles.add(role.trim());
         }
     }
 
     private void addNormalizedGroup(Set<String> rawRoles, String group) {
-        if (group == null || group.isBlank()) {
+        if (group.isBlank()) {
             return;
         }
         // Normalize Keycloak group paths: "/admins" -> "ADMINS", "/school/teachers" -> "SCHOOL_TEACHERS"

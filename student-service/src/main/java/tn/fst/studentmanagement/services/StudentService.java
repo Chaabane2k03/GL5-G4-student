@@ -1,7 +1,7 @@
 package tn.fst.studentmanagement.services;
 
 import feign.FeignException;
-import org.springframework.beans.factory.annotation.Autowired;
+import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import tn.fst.studentmanagement.clients.DepartmentClient;
 import tn.fst.studentmanagement.entities.Student;
@@ -12,12 +12,10 @@ import tn.fst.studentmanagement.repositories.StudentRepository;
 import java.util.List;
 
 @Service
+@RequiredArgsConstructor
 public class StudentService implements IStudentService {
-    @Autowired
-    private StudentRepository studentRepository;
-
-    @Autowired
-    private DepartmentClient departmentClient;
+    private final StudentRepository studentRepository;
+    private final DepartmentClient departmentClient;
 
     public List<Student> getAllStudents() { return studentRepository.findAll(); }
 

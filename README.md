@@ -250,6 +250,68 @@ docker compose down
 docker compose down -v
 ```
 
+## Code quality (SonarQube)
+
+A shared SonarQube instance (plus its PostgreSQL database) is defined in
+`docker-compose.sonar.yml`. It is independent of the application stack: both can run at the
+same time, and `docker compose down -v` on the application stack never deletes SonarQube data.
+
+```sh
+# Start SonarQube + its database (http://localhost:9000)
+docker compose -f docker-compose.sonar.yml up -d
+
+# Follow the start-up log
+docker compose -f docker-compose.sonar.yml logs -f sonarqube
+
+# Stop it (keep analysis history) / stop it and delete the history
+docker compose -f docker-compose.sonar.yml down
+docker compose -f docker-compose.sonar.yml down -v
+```
+
+> `course-service/docker-compose.sonar.yml` is a per-service variant of the same stack.
+> Don't run both — they both publish port 9000. Use the root compose file to analyse
+> every service from a single SonarQube instance.
+
+**One-time setup:** open `http://localhost:9000` (first login `admin` / `admin`; a password
+change is forced), then **My Account → Security → Generate Token**. Export the token:
+
+```sh
+export SONAR_TOKEN='<token>'      # bash
+$env:SONAR_TOKEN = '<token>'      # PowerShell
+```
+
+Build, test, measure coverage and scan **every service** with a single command:
+
+```powershell
+.\sonar-scan-all.ps1
+```
+
+Useful variants:
+
+```powershell
+.\sonar-scan-all.ps1 -Services course-service,department-service  # subset of services
+.\sonar-scan-all.ps1 -SkipQualityGate                            # do not wait for the gate
+.\sonar-scan-all.ps1 -FailOnQualityGate                          # fail when the gate is not OK/WARN
+```
+
+For each service the script runs `mvn clean verify` (unit, slice and E2E tests, plus the JaCoCo
+report and, where configured, the coverage gate) followed by the Sonar scanner, waits for the
+compute engine and prints a summary with tests, line coverage and quality-gate status. Every
+service is a separate SonarQube project whose key is its directory name (for example
+`course-service`). All seven poms declare the `sonar-maven-plugin`, so `mvn sonar:sonar` also
+works standalone (the script calls the fully qualified goal so it never depends on prefix
+resolution).
+
+The equivalent manual command for a single service is:
+
+```sh
+cd course-service
+../mvnw -B clean verify sonar:sonar \
+  -Dsonar.host.url=http://localhost:9000 \
+  -Dsonar.token=$SONAR_TOKEN \
+  -Dsonar.projectKey=course-service
+```
+
 ## Troubleshooting
 
 | Symptom | Likely cause / fix |
@@ -329,6 +391,8 @@ For the proposed resilience, messaging, CI/CD, security, and deployment roadmap,
 ├── course-service/      # Course CRUD API           (context path /course)
 ├── student-service/     # Student CRUD API          (context path /student)
 ├── docker-compose.yml   # Full local stack
+├── docker-compose.sonar.yml  # Shared SonarQube + PostgreSQL
+├── sonar-scan-all.ps1   # Build, test and scan every service
 └── terraform/           # Infrastructure as code (deployment, managed separately)
 ```
 
