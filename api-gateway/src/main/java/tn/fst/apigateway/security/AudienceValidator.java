@@ -6,8 +6,6 @@ import org.springframework.security.oauth2.core.OAuth2TokenValidator;
 import org.springframework.security.oauth2.core.OAuth2TokenValidatorResult;
 import org.springframework.security.oauth2.jwt.Jwt;
 
-import java.util.List;
-
 /**
  * Validates that the JWT access token contains the expected audience ('aud' claim).
  * This prevents cross-client token reuse where a valid token minted for another
@@ -27,8 +25,7 @@ public class AudienceValidator implements OAuth2TokenValidator<Jwt> {
             return OAuth2TokenValidatorResult.success();
         }
 
-        List<String> audience = jwt.getAudience();
-        if (audience != null && audience.contains(expectedAudience)) {
+        if (jwt.getAudience().contains(expectedAudience)) {
             return OAuth2TokenValidatorResult.success();
         }
 
