@@ -33,6 +33,11 @@ class DepartmentServiceIntegrationTest {
         assertEquals(HttpStatus.OK, fetched.getStatusCode());
         assertEquals("Computer Science", fetched.getBody().getName());
 
+        ResponseEntity<Department[]> listed = restTemplate.getForEntity("/api/departments", Department[].class);
+        assertEquals(HttpStatus.OK, listed.getStatusCode());
+        assertNotNull(listed.getBody());
+        assertTrue(listed.getBody().length >= 1);
+
         Department update = new Department(null, "Computer Science and Engineering", "Building A", "321", "A. Smith");
         restTemplate.put("/api/departments/{id}", update, id);
         ResponseEntity<Department> updated = restTemplate.getForEntity("/api/departments/{id}", Department.class, id);

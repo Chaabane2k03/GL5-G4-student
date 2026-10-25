@@ -12,6 +12,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
+import tn.fst.departmentservice.dto.DepartmentRequest;
 import tn.fst.departmentservice.entity.Department;
 import tn.fst.departmentservice.service.DepartmentService;
 
@@ -43,15 +44,14 @@ public class DepartmentController {
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
     @Operation(summary = "Create a department")
-    public Department createDepartment(@RequestBody Department department) {
-        department.setIdDepartment(null);
-        return departmentService.saveDepartment(department);
+    public Department createDepartment(@RequestBody DepartmentRequest department) {
+        return departmentService.saveDepartment(department.toEntity());
     }
 
     @PutMapping("/{id}")
     @Operation(summary = "Update a department")
-    public Department updateDepartment(@PathVariable Long id, @RequestBody Department department) {
-        return departmentService.updateDepartment(id, department);
+    public Department updateDepartment(@PathVariable Long id, @RequestBody DepartmentRequest department) {
+        return departmentService.updateDepartment(id, department.toEntity());
     }
 
     @DeleteMapping("/{id}")
