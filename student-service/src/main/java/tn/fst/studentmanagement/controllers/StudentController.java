@@ -7,6 +7,7 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.AllArgsConstructor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
+import tn.fst.studentmanagement.dto.StudentRequest;
 import tn.fst.studentmanagement.entities.Student;
 import tn.fst.studentmanagement.services.IStudentService;
 
@@ -34,13 +35,13 @@ IStudentService studentService;
     @Operation(summary = "Create a student", description = "Persists a new student")
     @ApiResponse(responseCode = "200", description = "Student created successfully")
     @PostMapping("/createStudent")
-    public Student createStudent(@RequestBody Student student) { return studentService.saveStudent(student); }
+    public Student createStudent(@RequestBody StudentRequest student) { return studentService.saveStudent(student.toEntity()); }
 
     @Operation(summary = "Update a student", description = "Persists changes to an existing student")
     @ApiResponse(responseCode = "200", description = "Student updated successfully")
     @PutMapping("/updateStudent")
-    public Student updateStudent(@RequestBody Student student) {
-        return studentService.saveStudent(student);
+    public Student updateStudent(@RequestBody StudentRequest student) {
+        return studentService.saveStudent(student.toEntity());
     }
 
     @Operation(summary = "Delete a student", description = "Deletes the student with the given id")

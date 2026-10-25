@@ -8,6 +8,7 @@ import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import tn.fst.studentmanagement.entities.Student;
+import tn.fst.studentmanagement.exceptions.DepartmentNotFoundException;
 import tn.fst.studentmanagement.exceptions.StudentNotFoundException;
 import tn.fst.studentmanagement.services.IStudentService;
 
@@ -87,6 +88,21 @@ class StudentControllerTest {
                         .content(objectMapper.writeValueAsString(sampleStudent())))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.firstName").value("John"));
+
+        verify(studentService).saveStudent(any(Student.class));
+    }
+
+    @Test
+    void createStudent_withUnknownDepartment_returns404() throws Exception {
+        when(studentService.saveStudent(any(Student.class)))
+                .thenThrow(new DepartmentNotFoundException(10L));
+
+        mockMvc.perform(post("/students/createStudent")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(sampleStudent())))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.status").value(404))
+                .andExpect(jsonPath("$.detail").value(org.hamcrest.Matchers.containsString("10")));
 
         verify(studentService).saveStudent(any(Student.class));
     }
