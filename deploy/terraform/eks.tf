@@ -18,9 +18,6 @@ resource "aws_eks_cluster" "gl5" {
   # Wait for network side to be ready to avoid a half-created control plane
   depends_on = [aws_route_table_association.public]
 
-  tags = {
-    Project = "gl5-g4"
-  }
 }
 
 resource "aws_eks_node_group" "app" {

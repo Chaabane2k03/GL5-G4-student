@@ -57,8 +57,4 @@ resource "aws_db_instance" "gl5" {
   auto_minor_version_upgrade = true
 
   apply_immediately = true
-
-  tags = {
-    Project = "gl5-g4"
-  }
 }

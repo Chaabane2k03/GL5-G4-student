@@ -22,7 +22,5 @@ resource "aws_ecr_repository" "app" {
   force_delete         = true
   image_tag_mutability = "MUTABLE"
 
-  tags = {
-    Project = "gl5-g4"
-  }
+ 
 }
