@@ -1,8 +1,10 @@
 # Full local integration stack:
 #   Config Server (Git-backed config-repo) + Eureka registry + API Gateway
-#   + 4 microservices + their MySQL databases.
+#   + 4 microservices + their MySQL databases + Keycloak + Angular frontend.
 #
 #   docker compose up -d --build
+#   Frontend:           http://localhost:4200
+#   Keycloak:           http://localhost:8080  (admin / admin for local development)
 #   Eureka dashboard:   http://localhost:8761
 #   Config Server:      http://localhost:8071  (Basic Auth: CONFIG_USER / CONFIG_PASSWORD from config-server/.env)
 #
@@ -321,6 +323,8 @@ services:
         condition: service_healthy
       student-service:
         condition: service_healthy
+      keycloak-service:
+        condition: service_started
     env_file:
       - path: ./config-server/.env
         format: raw
@@ -330,6 +334,8 @@ services:
       EUREKA_URL: http://eureka-server:8761/eureka/
       OTEL_EXPORTER_OTLP_ENDPOINT: http://host.docker.internal:4318/v1/traces
       MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE: health,info,gateway,prometheus
+      KEYCLOAK_ISSUER_URI: http://localhost:8080/realms/gl5
+      JWK_SET_URI: http://keycloak-service:8080/realms/gl5/protocol/openid-connect/certs
     ports:
       - "8072:8072"
     healthcheck:
@@ -338,6 +344,53 @@ services:
       timeout: 5s
       retries: 20
       start_period: 60s
+    networks:
+      - gl5-net
+    restart: unless-stopped
+
+  # ------------------------------------------------------------- frontend ----
+  frontend-service:
+    build:
+      context: ./frontend-service
+      dockerfile: Dockerfile
+    image: gl5-g4-frontend-service:local
+    container_name: gl5-frontend-service
+    depends_on:
+      keycloak-service:
+        condition: service_started
+    environment:
+      API_BASE_URL: ${API_BASE_URL:-http://localhost:8072}
+      KEYCLOAK_URL: ${KEYCLOAK_URL:-http://localhost:8080}
+      KEYCLOAK_REALM: ${KEYCLOAK_REALM:-gl5}
+      KEYCLOAK_CLIENT_ID: ${KEYCLOAK_CLIENT_ID:-cursus-frontend}
+    ports:
+      - "${FRONTEND_PORT:-4200}:8080"
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+    networks:
+      - gl5-net
+    restart: unless-stopped
+
+  # ------------------------------------------------------------- keycloak ----
+  keycloak-service:
+    image: quay.io/keycloak/keycloak:26.8.1
+    container_name: gl5-keycloak-service
+    command:
+      - start-dev
+      - --import-realm
+      - --http-port=8080
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: ${KEYCLOAK_ADMIN:-admin}
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:-admin}
+    ports:
+      - "${KEYCLOAK_PORT:-8080}:8080"
+    volumes:
+      - ./frontend-service/keycloak/realm-gl5.json:/opt/keycloak/data/import/realm-gl5.json:ro
+      - ./frontend-service/keycloak/themes:/opt/keycloak/themes:ro
     networks:
       - gl5-net
     restart: unless-stopped
