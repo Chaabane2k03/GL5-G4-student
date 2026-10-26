@@ -28,12 +28,12 @@ resource "aws_security_group" "rds" {
 }
 
 resource "aws_vpc_security_group_ingress_rule" "mysql_from_nodes" {
-  security_group_id = aws_security_group.rds.id
-  cidr_ipv4         = var.vpc_cidr
-  from_port         = 3306
-  to_port           = 3306
-  ip_protocol       = "tcp"
-}
+  security_group_id            = aws_security_group.rds.id
+  referenced_security_group_id = aws_eks_cluster.gl5.vpc_config[0].cluster_security_group_id
+  from_port                    = 3306
+  to_port                      = 3306
+  ip_protocol                  = "tcp"
+}   
 
 resource "aws_db_instance" "gl5" {
   identifier            = "gl5-g4-db"
@@ -43,6 +43,7 @@ resource "aws_db_instance" "gl5" {
   max_allocated_storage = 50
   storage_type          = "gp2"
   multi_az              = false
+  storage_encrypted = true
 
   db_subnet_group_name   = aws_db_subnet_group.gl5.name
   vpc_security_group_ids = [aws_security_group.rds.id]
