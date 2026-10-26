@@ -10,7 +10,6 @@ import tn.fst.studentmanagement.command.UpdateEnrollmentCommand;
 /** Write endpoints only (POST, PUT, DELETE). */
 @RestController
 @RequestMapping("/Enrollment")
-@CrossOrigin(origins = "http://localhost:4200")
 @RequiredArgsConstructor
 public class EnrollmentCommandController {
 
