@@ -33,7 +33,7 @@ resource "aws_vpc_security_group_ingress_rule" "mysql_from_nodes" {
   from_port                    = 3306
   to_port                      = 3306
   ip_protocol                  = "tcp"
-}   
+}
 
 resource "aws_db_instance" "gl5" {
   identifier            = "gl5-g4-db"
@@ -43,7 +43,7 @@ resource "aws_db_instance" "gl5" {
   max_allocated_storage = 50
   storage_type          = "gp2"
   multi_az              = false
-  storage_encrypted = true
+  storage_encrypted     = true
 
   db_subnet_group_name   = aws_db_subnet_group.gl5.name
   vpc_security_group_ids = [aws_security_group.rds.id]
