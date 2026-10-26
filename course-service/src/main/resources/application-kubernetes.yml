@@ -1,0 +1,53 @@
+# ==========================================================================
+# Kubernetes profile - activate with SPRING_PROFILES_ACTIVE=kubernetes.
+#
+# Inside the cluster there is no Eureka and no Config Server: every setting
+# the Config Server normally supplies (port, context path, datasource,
+# downstream URLs) is defined here with in-cluster defaults. Every value can
+# be overridden with environment variables from the Deployment manifest, and
+# secrets (datasource password) must always come from a Kubernetes Secret.
+# ==========================================================================
+
+# --- No Config Server: the config-server import lives in a guarded document
+#     at the bottom of application.yml (on-profile "!kubernetes"), so with
+#     this profile active it is skipped and no fetch is ever attempted. This
+#     flag is an extra belt-and-braces guard. ---
+spring:
+  cloud:
+    config:
+      enabled: false
+  # Datasource (normally served by the Config Server). The password is
+  # intentionally empty here: provide it from a Secret via
+  # SPRING_DATASOURCE_PASSWORD, never commit it.
+  datasource:
+    url: ${SPRING_DATASOURCE_URL:jdbc:mysql://course-db:3306/course_db?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC}
+    username: ${SPRING_DATASOURCE_USERNAME:course_user}
+    password: ${SPRING_DATASOURCE_PASSWORD:}
+  jpa:
+    hibernate:
+      ddl-auto: ${SPRING_JPA_HIBERNATE_DDL_AUTO:validate}
+  sql:
+    init:
+      # Same as the docker profile: create/refresh the schema from
+      # classpath:schema.sql before Hibernate validates it.
+      mode: ${SPRING_SQL_INIT_MODE:always}
+      schema-locations: classpath:schema.sql
+
+# --- No Eureka: peers are reached through Kubernetes Services/DNS only. ---
+eureka:
+  client:
+    enabled: false
+    register-with-eureka: false
+    fetch-registry: false
+
+# --- HTTP endpoint (normally served by the Config Server) ---
+server:
+  port: ${SERVER_PORT:8084}
+  servlet:
+    context-path: /course
+
+# --- Downstream service URLs (Kubernetes Service DNS, Service port).
+#     Override when the Service exposes another port than the default 80. ---
+department:
+  service:
+    url: ${DEPARTMENT_SERVICE_URL:http://department-service}

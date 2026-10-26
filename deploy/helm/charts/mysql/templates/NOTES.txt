@@ -1,0 +1,12 @@
+The MySQL database {{ include "mysql.fullname" . }} has been deployed.
+
+Connection URL used by the application:
+  jdbc:mysql://{{ include "mysql.fullname" . }}:{{ .Values.service.port }}/{{ .Values.database }}?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC
+
+Credentials are stored in the Secret {{ include "mysql.secretName" . }}.
+
+{{- if .Values.persistence.enabled }}
+
+The data lives in a PersistentVolumeClaim that is kept when the release is
+uninstalled (helm.sh/resource-policy: keep).
+{{- end }}

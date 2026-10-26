@@ -65,6 +65,15 @@
             <artifactId>spring-cloud-starter-openfeign</artifactId>
         </dependency>
         <dependency>
+            <!-- Instruments every Feign call: creates a CLIENT span and propagates the
+                 W3C trace context (traceparent) to the called service. Spring Cloud
+                 OpenFeign only activates this when feign.micrometer is on the classpath,
+                 so without it a trace stops at the caller boundary. The version comes
+                 from the Feign BOM imported by spring-cloud-dependencies. -->
+            <groupId>io.github.openfeign</groupId>
+            <artifactId>feign-micrometer</artifactId>
+        </dependency>
+        <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-web</artifactId>
         </dependency>

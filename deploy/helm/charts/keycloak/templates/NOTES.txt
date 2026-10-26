@@ -1,0 +1,18 @@
+Keycloak has been deployed in the namespace {{ .Release.Namespace }}.
+
+Issuer URI (this is what the API Gateway is configured with):
+  {{ .Values.hostname }}/realms/{{ .Values.realm.name }}
+
+Obtain an access token from your workstation:
+
+  kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "keycloak.fullname" . }} 8080:{{ .Values.service.port }}
+
+  curl -s -X POST \
+    "http://localhost:8080/realms/{{ .Values.realm.name }}/protocol/openid-connect/token" \
+    -d "grant_type=password" \
+    -d "client_id={{ .Values.realm.clientId }}" \
+    -d "username=admin" -d "password=admin" | jq -r .access_token
+
+Then call the API with it:
+
+  curl -H "Authorization: Bearer <token>" http://<frontend>/api/department

@@ -60,7 +60,11 @@ services:
       # platform mode needs), so it must be overridden to the empty string here —
       # otherwise the healthcheck hits /course/actuator/health and reports 500.
       CONTEXT_PATH: ""
-      MANAGEMENT_ENDPOINTS: "${MANAGEMENT_ENDPOINTS:-health,info}"
+      # prometheus is included so the standalone stack also exposes /actuator/prometheus.
+      MANAGEMENT_ENDPOINTS: "${MANAGEMENT_ENDPOINTS:-health,info,prometheus}"
+      # Traces go to the Jaeger collector from the observability stack. The default
+      # (http://localhost:4318) points inside the container, so it is overridden here.
+      OTEL_EXPORTER_OTLP_ENDPOINT: "${OTEL_EXPORTER_OTLP_ENDPOINT:-http://host.docker.internal:4318/v1/traces}"
       APP_OPENAPI_TITLE: ${APP_OPENAPI_TITLE:-Course Service API}
       APP_OPENAPI_VERSION: ${APP_OPENAPI_VERSION:-v1}
       APP_OPENAPI_DESCRIPTION: "${APP_OPENAPI_DESCRIPTION:-REST API to manage courses: create, read, update, archive and activate. Standalone service; departments are referenced by id only.}"

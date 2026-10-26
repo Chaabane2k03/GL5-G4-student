@@ -44,3 +44,4 @@ Thumbs.db
 .m2
 
 jenkins/
+deploy/helm/umbrella/gl5-student/charts/*.tgz
