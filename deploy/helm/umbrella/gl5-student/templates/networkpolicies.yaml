@@ -419,6 +419,14 @@ spec:
       ports:
         - protocol: TCP
           port: {{ $db.port }}
+    {{- range $cidr := $np.databaseCidrBlocks }}
+    - to:
+        - ipBlock:
+            cidr: {{ $cidr }}
+      ports:
+        - protocol: TCP
+          port: {{ $db.port }}
+    {{- end }}
 ---
 {{- end }}
 {{- end }}

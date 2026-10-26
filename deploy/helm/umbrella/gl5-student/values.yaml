@@ -201,6 +201,10 @@ networkPolicy:
   # "ip" mode sends the client traffic from the VPC, so the client CIDRs have
   # to be allowed here.
   ingressCidrBlocks: []
+  # CIDRs allowed for EKS microservice connections to the external RDS
+  # endpoint. Keep empty for Minikube, where bundled MySQL is selected by the
+  # pod-based rules below.
+  databaseCidrBlocks: []
   # Namespace of the observability stack, allowed to scrape the metrics.
   observabilityNamespace: observability
 
