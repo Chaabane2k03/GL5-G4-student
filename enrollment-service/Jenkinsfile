@@ -5,6 +5,12 @@ pipeline {
         timestamps()
     }
 
+    // NEW: opt-in switch so normal builds never touch AWS
+    parameters {
+        booleanParam(name: 'PUSH_TO_ECR', defaultValue: false,
+                     description: 'Push image to ECR (needs lab running + ECR repos created)')
+    }
+
     stages {
         stage('Checkout') {
             steps {
@@ -44,6 +50,46 @@ pipeline {
             steps {
                 dir('enrollment-service') {
                     sh 'docker build -t enrollment-service:${BUILD_NUMBER} -t enrollment-service:latest .'
+                }
+            }
+        }
+
+        // NEW: validates the team's Terraform without touching AWS
+        stage('Terraform Validate') {
+            when { expression { fileExists('deploy/terraform') } }
+            steps {
+                dir('deploy/terraform') {
+                    sh '''
+                        terraform fmt -check -recursive
+                        terraform init -backend=false -input=false
+                        terraform validate
+                    '''
+                }
+            }
+        }
+
+        // NEW: only runs when you tick PUSH_TO_ECR
+        stage('Push to ECR') {
+            when { expression { params.PUSH_TO_ECR } }
+            steps {
+                withCredentials([
+                    string(credentialsId: 'aws-access-key-id',     variable: 'AWS_ACCESS_KEY_ID'),
+                    string(credentialsId: 'aws-secret-access-key', variable: 'AWS_SECRET_ACCESS_KEY'),
+                    string(credentialsId: 'aws-session-token',     variable: 'AWS_SESSION_TOKEN')
+                ]) {
+                    sh '''
+                        export AWS_DEFAULT_REGION=us-east-1
+                        ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+                        REGISTRY=$ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com
+                        REPO=$REGISTRY/gl5-g4-enrollment-service
+
+                        aws ecr get-login-password | docker login --username AWS --password-stdin $REGISTRY
+
+                        docker tag enrollment-service:$BUILD_NUMBER $REPO:$BUILD_NUMBER
+                        docker tag enrollment-service:$BUILD_NUMBER $REPO:latest
+                        docker push $REPO:$BUILD_NUMBER
+                        docker push $REPO:latest
+                    '''
                 }
             }
         }
