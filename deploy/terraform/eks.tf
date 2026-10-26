@@ -7,7 +7,7 @@
 resource "aws_eks_cluster" "gl5" {
   name     = var.cluster_name
   role_arn = data.aws_iam_role.cluster_role.arn
-  version  = "1.31"
+  version  = var.kubernetes_version
 
   vpc_config {
     subnet_ids              = aws_subnet.nodes[*].id
