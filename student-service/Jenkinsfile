@@ -29,9 +29,6 @@ pipeline {
         }
 
         stage('Check environment') {
-            when {
-                branch 'feature/student_service'
-            }
             steps {
                 sh '''
                     set -eu
@@ -66,9 +63,6 @@ pipeline {
         }
 
         stage('Build and test with H2') {
-            when {
-                branch 'feature/student_service'
-            }
             steps {
                 sh '''
                     set -eu
@@ -121,9 +115,6 @@ pipeline {
         }
 
         stage('Build and run with MySQL') {
-            when {
-                branch 'feature/student_service'
-            }
             steps {
                 sh '''
                     set -eu
@@ -132,14 +123,14 @@ pipeline {
                     ready=0
                     for attempt in $(seq 1 60); do
                         if curl --fail --silent --show-error --connect-timeout 2 \
-                            http://host.docker.internal:8085/student/v3/api-docs >/dev/null; then
+                            http://host.docker.internal:8085/v3/api-docs >/dev/null; then
                             ready=1
                             break
                         fi
                         sleep 2
                     done
                     if [ "$ready" -ne 1 ]; then
-                        echo >&2 'Student service did not respond through the Docker host gateway at host.docker.internal:8085/student/v3/api-docs.'
+                        echo >&2 'Student service did not respond through the Docker host gateway at host.docker.internal:8085/v3/api-docs.'
                         docker compose -p "student-service-$BUILD_NUMBER" \
                             -f student-service/compose.yaml ps
                         docker compose -p "student-service-$BUILD_NUMBER" \
@@ -160,9 +151,6 @@ pipeline {
         }
 
         stage('SonarQube analysis') {
-            when {
-                branch 'feature/student_service'
-            }
             steps {
                 withSonarQubeEnv('SonarQube') {
                     script {
@@ -182,9 +170,6 @@ pipeline {
         }
 
         stage('Quality gate') {
-            when {
-                branch 'feature/student_service'
-            }
             steps {
                 script {
                     timeout(time: 5, unit: 'MINUTES') {
@@ -226,7 +211,7 @@ pipeline {
                             <ul>
                                 <li><strong>Job:</strong> ${env.JOB_NAME}</li>
                                 <li><strong>Build:</strong> <a href="${env.BUILD_URL}">#${env.BUILD_NUMBER}</a></li>
-                                <li><strong>Branch:</strong> ${env.BRANCH_NAME ?: 'unknown'}</li>
+                                <li><strong>Branch:</strong> ${env.GIT_BRANCH ?: 'unknown'}</li>
                                 <li><strong>Commit:</strong> ${env.GIT_COMMIT ?: 'unknown'}</li>
                                 <li><strong>Build and tests:</strong> ${buildAndTestStatus}</li>
                                 <li><strong>Overall Jenkins result:</strong> ${currentBuild.currentResult}</li>
