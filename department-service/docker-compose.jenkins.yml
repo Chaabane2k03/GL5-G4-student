@@ -1,0 +1,126 @@
+# Standalone Jenkins controller for the department-service pipeline.
+#
+# Start the shared SonarQube stack first (repository root):
+#   docker compose -f docker-compose.sonar.yml up -d
+# Then start this controller:
+#   docker compose -f docker-compose.jenkins.yml up -d --build
+# UI: http://localhost:${JENKINS_PORT:-8092}  (login admin / admin by default).
+#
+# The controller joins the "gl5-sonar-net" network created by the root
+# docker-compose.sonar.yml, so the scanner reaches SonarQube at
+# http://sonarqube:9000 and SonarQube can reach the Jenkins webhook at
+# http://department-jenkins:8080/sonarqube-webhook/.
+#
+# It builds images with the host Docker daemon (socket mounted below); the
+# pipeline's compose smoke test (compose.yaml + MySQL) also runs there.
+name: department-jenkins
+
+services:
+  jenkins:
+    build:
+      context: .
+      dockerfile: Dockerfile.jenkins
+    image: ${JENKINS_IMAGE:-department-jenkins:latest}
+    container_name: ${JENKINS_CONTAINER_NAME:-department-jenkins}
+    # Runs as root so the bind-mounted Docker socket and the Maven cache volume
+    # are writable without extra group plumbing (local CI only).
+    user: root
+    environment:
+      HOME: /var/jenkins_home
+      CASC_JENKINS_CONFIG: /var/jenkins_home/casc_configs
+      CASC_JENKINS_CONFIG_WATCH: "true"
+      JAVA_OPTS: "-Djenkins.install.runSetupWizard=false -Xmx768m"
+      # Login for the local Jenkins UI (see jenkins/casc.yaml).
+      JENKINS_ADMIN_USER: ${JENKINS_ADMIN_USER:-admin}
+      JENKINS_ADMIN_PASSWORD: ${JENKINS_ADMIN_PASSWORD:-admin}
+      # Browser URL (informational) and the URL SonarQube uses to call back.
+      JENKINS_EXTERNAL_URL: ${JENKINS_EXTERNAL_URL:-http://localhost:8092/}
+      JENKINS_INTERNAL_URL: ${JENKINS_INTERNAL_URL:-http://department-jenkins:8080/}
+      # SonarQube token injected into the "sonar-token" Jenkins credential
+      # (jenkins/casc.yaml). Generate it in the shared SonarQube instance.
+      SONAR_TOKEN: ${SONAR_TOKEN:-}
+      # Docker-outside-of-Docker: pipelines use the mounted host socket, and
+      # Testcontainers must reach the containers it starts via the host gateway.
+      DOCKER_HOST: unix:///var/run/docker.sock
+      TESTCONTAINERS_HOST_OVERRIDE: host.docker.internal
+      TESTCONTAINERS_RYUK_DISABLED: "true"
+      # Keep the Maven cache on the mounted volume (JVM user.home is /root here).
+      MAVEN_OPTS: -Dmaven.repo.local=/var/jenkins_home/.m2/repository
+    ports:
+      - "${JENKINS_PORT:-8092}:8080"
+    volumes:
+      - jenkins-home:/var/jenkins_home
+      - maven-repo:/var/jenkins_home/.m2
+      - ./jenkins/casc.yaml:/var/jenkins_home/casc_configs/casc.yaml:ro
+      - /var/run/docker.sock:/var/run/docker.sock
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    networks:
+      - default
+      - sonar
+    restart: unless-stopped
+
+  # Registers this controller's webhook in the shared SonarQube instance so
+  # waitForQualityGate() receives the callback. Runs once and exits.
+  # Re-run it after putting the token in .env:
+  #   docker compose -f docker-compose.jenkins.yml run --rm sonar-webhook-init
+  sonar-webhook-init:
+    image: curlimages/curl:8.10.1
+    container_name: ${SONAR_WEBHOOK_INIT_CONTAINER_NAME:-department-sonar-webhook-init}
+    depends_on:
+      jenkins:
+        condition: service_started
+    environment:
+      SONAR_URL: http://sonarqube:9000
+      SONAR_TOKEN: ${SONAR_TOKEN:-}
+      WEBHOOK_NAME: ${SONAR_WEBHOOK_NAME:-department-service-jenkins}
+      JENKINS_WEBHOOK_URL: ${JENKINS_WEBHOOK_URL:-http://department-jenkins:8080/sonarqube-webhook/}
+    networks:
+      - sonar
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        set -eu
+        if [ -z "$$SONAR_TOKEN" ]; then
+          echo "SONAR_TOKEN is empty; skipping SonarQube webhook registration."
+          exit 0
+        fi
+        echo "Waiting for SonarQube at $$SONAR_URL ..."
+        ready=0
+        for _ in $$(seq 1 120); do
+          if curl -fsS "$$SONAR_URL/api/system/status" | grep -q '"status":"UP"'; then
+            ready=1
+            break
+          fi
+          sleep 3
+        done
+        if [ "$$ready" -ne 1 ]; then
+          echo "SonarQube did not become ready in time." >&2
+          exit 1
+        fi
+        # SonarQube 26+ rejects webhook URLs that resolve to private Docker
+        # addresses. This stack only runs on a local CI network, so disable
+        # the validation before registering the webhook.
+        curl -fsS -u "$$SONAR_TOKEN:" -X POST "$$SONAR_URL/api/settings/set" \
+          --data-urlencode "key=sonar.validateWebhooks" \
+          --data-urlencode "value=false" >/dev/null
+        if curl -fsS -u "$$SONAR_TOKEN:" "$$SONAR_URL/api/webhooks/list" | grep -Fq "$$JENKINS_WEBHOOK_URL"; then
+          echo "Webhook $$WEBHOOK_NAME already registered."
+          exit 0
+        fi
+        curl -fsS -u "$$SONAR_TOKEN:" -X POST "$$SONAR_URL/api/webhooks/create" \
+          --data-urlencode "name=$$WEBHOOK_NAME" \
+          --data-urlencode "url=$$JENKINS_WEBHOOK_URL"
+        echo
+        echo "Registered webhook $$WEBHOOK_NAME -> $$JENKINS_WEBHOOK_URL"
+    restart: "no"
+
+volumes:
+  jenkins-home:
+  maven-repo:
+
+networks:
+  # Shared with the root docker-compose.sonar.yml (create it by starting that stack).
+  sonar:
+    external: true
+    name: gl5-sonar-net

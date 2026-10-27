@@ -27,9 +27,9 @@ services:
         condition: service_healthy
     environment:
       SERVER_PORT: 8085
-      DB_URL: jdbc:mysql://mysql:3306/studentdb
-      DB_USERNAME: student
-      DB_PASSWORD: ${MYSQL_PASSWORD:-student-dev-password}
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/studentdb?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC
+      SPRING_DATASOURCE_USERNAME: student
+      SPRING_DATASOURCE_PASSWORD: ${MYSQL_PASSWORD:-student-dev-password}
     ports:
       - "8085:8085"
 

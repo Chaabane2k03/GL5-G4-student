@@ -27,9 +27,9 @@ services:
         condition: service_healthy
     environment:
       SERVER_PORT: 8082
-      DB_URL: jdbc:mysql://mysql:3306/departmentdb
-      DB_USERNAME: department
-      DB_PASSWORD: ${MYSQL_PASSWORD:-department-dev-password}
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/departmentdb?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC
+      SPRING_DATASOURCE_USERNAME: department
+      SPRING_DATASOURCE_PASSWORD: ${MYSQL_PASSWORD:-department-dev-password}
     ports:
       - "8082:8082"
 

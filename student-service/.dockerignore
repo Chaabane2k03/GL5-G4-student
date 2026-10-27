@@ -3,3 +3,6 @@
 .env
 **/target/*
 !student-service/target/student-service.jar
+Dockerfile.jenkins
+docker-compose*.yml
+jenkins/

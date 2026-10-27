@@ -3,3 +3,6 @@
 .env
 **/target/*
 !department-service/target/department-service.jar
+Dockerfile.jenkins
+docker-compose*.yml
+jenkins/

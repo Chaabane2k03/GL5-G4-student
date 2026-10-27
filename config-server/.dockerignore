@@ -7,3 +7,6 @@ target/
 .env.example
 README.md
 Dockerfile
+Dockerfile.jenkins
+docker-compose*.yml
+jenkins/
