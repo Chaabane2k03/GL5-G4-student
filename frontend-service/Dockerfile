@@ -20,8 +20,11 @@ COPY docker/nginx.conf /etc/nginx/conf.d/default.conf
 COPY docker/config.json.template /etc/nginx/templates/config.json.template
 COPY --from=build /app/dist/cursus-frontend/browser /usr/share/nginx/html
 
+RUN rm /usr/share/nginx/html/config.json \
+    && chown -R 101:101 /usr/share/nginx/html /var/cache/nginx /var/run
+
 ENV API_BASE_URL=http://localhost:8072 \
-    KEYCLOAK_URL=http://localhost:8080 \
+    KEYCLOAK_URL=http://localhost:8081 \
     KEYCLOAK_REALM=gl5 \
     KEYCLOAK_CLIENT_ID=cursus-frontend \
     NGINX_ENVSUBST_OUTPUT_DIR=/usr/share/nginx/html

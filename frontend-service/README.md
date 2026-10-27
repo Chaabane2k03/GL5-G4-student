@@ -42,7 +42,7 @@ docker compose up -d --build
 ```
 
 - Frontend : `http://localhost:4200`
-- Keycloak : `http://localhost:8080`
+- Keycloak : `http://localhost:8081`
 - API Gateway : `http://localhost:8072`
 
 Conteneurs associés :
@@ -66,11 +66,11 @@ est généré depuis `docker/config.json.template` via `envsubst`.
 | Variable | Description | Défaut |
 | --- | --- | --- |
 | `API_BASE_URL` | URL de l'API Gateway (navigateur) | `http://localhost:8072` |
-| `KEYCLOAK_URL` | URL publique du serveur Keycloak | `http://localhost:8080` |
+| `KEYCLOAK_URL` | URL publique du serveur Keycloak | `http://localhost:8081` |
 | `KEYCLOAK_REALM` | Realm Keycloak | `gl5` |
 | `KEYCLOAK_CLIENT_ID` | Client public Keycloak | `cursus-frontend` |
 | `FRONTEND_PORT` | Port hôte du conteneur frontend | `4200` |
-| `KEYCLOAK_PORT` | Port hôte du conteneur Keycloak | `8080` |
+| `KEYCLOAK_PORT` | Port hôte du conteneur Keycloak | `8081` |
 | `KEYCLOAK_ADMIN` / `KEYCLOAK_ADMIN_PASSWORD` | Admin bootstrap du realm `master` | `admin` / `admin` |
 
 Ces variables sont **publiques** : elles finissent dans le navigateur. Ne jamais y placer de

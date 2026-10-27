@@ -4,7 +4,7 @@
 #
 #   docker compose up -d --build
 #   Frontend:           http://localhost:4200
-#   Keycloak:           http://localhost:8080  (admin / admin for local development)
+#   Keycloak:           http://localhost:8081  (admin / admin for local development)
 #   Eureka dashboard:   http://localhost:8761
 #   Config Server:      http://localhost:8071  (Basic Auth: CONFIG_USER / CONFIG_PASSWORD from config-server/.env)
 #
@@ -334,7 +334,7 @@ services:
       EUREKA_URL: http://eureka-server:8761/eureka/
       OTEL_EXPORTER_OTLP_ENDPOINT: http://host.docker.internal:4318/v1/traces
       MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE: health,info,gateway,prometheus
-      KEYCLOAK_ISSUER_URI: http://localhost:8080/realms/gl5
+      KEYCLOAK_ISSUER_URI: http://localhost:8081/realms/gl5
       JWK_SET_URI: http://keycloak-service:8080/realms/gl5/protocol/openid-connect/certs
     ports:
       - "8072:8072"
@@ -345,7 +345,9 @@ services:
       retries: 20
       start_period: 60s
     networks:
-      - gl5-net
+      gl5-net:
+        aliases:
+          - api-gateway
     restart: unless-stopped
 
   # ------------------------------------------------------------- frontend ----
@@ -356,11 +358,13 @@ services:
     image: gl5-g4-frontend-service:local
     container_name: gl5-frontend-service
     depends_on:
+      api-gateway:
+        condition: service_started
       keycloak-service:
         condition: service_started
     environment:
       API_BASE_URL: ${API_BASE_URL:-http://localhost:8072}
-      KEYCLOAK_URL: ${KEYCLOAK_URL:-http://localhost:8080}
+      KEYCLOAK_URL: ${KEYCLOAK_URL:-http://localhost:8081}
       KEYCLOAK_REALM: ${KEYCLOAK_REALM:-gl5}
       KEYCLOAK_CLIENT_ID: ${KEYCLOAK_CLIENT_ID:-cursus-frontend}
     ports:
@@ -387,12 +391,14 @@ services:
       KC_BOOTSTRAP_ADMIN_USERNAME: ${KEYCLOAK_ADMIN:-admin}
       KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:-admin}
     ports:
-      - "${KEYCLOAK_PORT:-8080}:8080"
+      - "${KEYCLOAK_PORT:-8081}:8080"
     volumes:
       - ./frontend-service/keycloak/realm-gl5.json:/opt/keycloak/data/import/realm-gl5.json:ro
       - ./frontend-service/keycloak/themes:/opt/keycloak/themes:ro
     networks:
-      - gl5-net
+      gl5-net:
+        aliases:
+          - keycloak
     restart: unless-stopped
 
 networks:

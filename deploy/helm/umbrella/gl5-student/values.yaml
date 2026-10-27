@@ -62,7 +62,7 @@ api-gateway:
     ENROLLMENT_SERVICE_URL: http://enrollment-service
     STUDENT_SERVICE_URL: http://student-service
   service:
-    port: 80
+    port: 8072
   resources:
     requests:
       cpu: 200m
@@ -212,7 +212,7 @@ networkPolicy:
   # on the pod port, after the Service DNAT.
   frontend:
     name: frontend
-    port: 80
+    port: 8080
   gateway:
     name: api-gateway
     port: 8072

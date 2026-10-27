@@ -56,10 +56,10 @@ export class AuthService {
       });
 
       const initOptions: KeycloakInitOptions = {
-        pkceMethod: 'S256',
-        flow: 'standard',
+        flow: kcConfig.pkceMethod === false ? 'implicit' : 'standard',
         checkLoginIframe: false,
         enableLogging: false,
+        pkceMethod: kcConfig.pkceMethod === false ? false : 'S256',
       };
 
       if (checkSso) {

@@ -12,9 +12,18 @@
 # ---------------------------------------------------------------------------
 
 frontend:
+  image:
+    repository: gl5-g4-frontend-service
+    tag: fix-enrollment-null-status
+    pullPolicy: IfNotPresent
   ingress:
     className: nginx
     host: gl5-g4.test
+    tls:
+      enabled: true
+      secretName: gl5-g4-tls
+  runtime:
+    pkceMethod: S256
 
 # The identity provider keeps its database in the pod's ephemeral filesystem:
 # the realm is re-imported on every fresh pod, which makes the demo
@@ -24,13 +33,20 @@ keycloak:
     vendor: dev-file
   persistence:
     enabled: false
+  # Keycloak must publish browser-reachable OIDC endpoints. The /auth prefix
+  # is provided by the frontend reverse proxy and is part of the issuer.
+  hostname: https://gl5-g4.test/auth
 
 api-gateway:
   env:
     # The observability stack runs on the Docker host, which the Minikube
     # nodes reach through the Docker bridge gateway.
     OTEL_EXPORTER_OTLP_ENDPOINT: http://192.168.49.1:4318/v1/traces
-    KEYCLOAK_ISSUER_URI: http://keycloak:8080/realms/gl5
+    KEYCLOAK_ISSUER_URI: https://gl5-g4.test/auth/realms/gl5
+  config:
+    # Keep JWKS traffic inside the cluster while validating the public issuer
+    # advertised in browser tokens.
+    JWK_SET_URI: http://keycloak:8080/realms/gl5/protocol/openid-connect/certs
   javaOpts: "-XX:MaxRAMPercentage=45 -XX:+ExitOnOutOfMemoryError"
   resources:
     requests:
@@ -128,5 +144,3 @@ rds:
 # The credentials are created by the chart on Minikube.
 externalSecrets:
   enabled: false
-
-

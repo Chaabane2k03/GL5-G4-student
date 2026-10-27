@@ -1323,7 +1323,9 @@ export class EnrollmentsListComponent implements OnInit {
         return codeA.localeCompare(codeB) * dir;
       }
       if (field === 'date') {
-        return a.enrollment.enrollmentDate.localeCompare(b.enrollment.enrollmentDate) * dir;
+        const dateA = a.enrollment.enrollmentDate ?? '';
+        const dateB = b.enrollment.enrollmentDate ?? '';
+        return dateA.localeCompare(dateB) * dir;
       }
       if (field === 'grade') {
         const gA = a.enrollment.grade ?? -1;
@@ -1438,7 +1440,7 @@ export class EnrollmentsListComponent implements OnInit {
     return student ? getStudentMatricule(student) : '—';
   }
 
-  formatDate(date: string): string {
+  formatDate(date: string | null | undefined): string {
     return formatDateFrShort(date);
   }
 

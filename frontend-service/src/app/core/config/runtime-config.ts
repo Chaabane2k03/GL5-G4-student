@@ -1,9 +1,12 @@
 import { makeEnvironmentProviders, provideAppInitializer, signal } from '@angular/core';
+import type { KeycloakInitOptions } from 'keycloak-js';
 
 export interface KeycloakConfig {
   url: string;
   realm: string;
   clientId: string;
+  /** False disables PKCE for HTTP-only local environments. */
+  pkceMethod?: KeycloakInitOptions['pkceMethod'];
 }
 
 export interface RuntimeConfig {
@@ -63,6 +66,7 @@ export class ConfigService {
           url: keycloak.url,
           realm: keycloak.realm,
           clientId: keycloak.clientId,
+          pkceMethod: keycloak.pkceMethod,
         },
       };
       this.loadError.set(null);

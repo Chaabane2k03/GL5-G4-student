@@ -87,12 +87,12 @@ export type StatusValue = CourseStatus | EnrollmentStatus;
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class StatusBadgeComponent {
-  readonly status = input.required<StatusValue>();
+  readonly status = input.required<StatusValue | null | undefined>();
   readonly context = input<'course' | 'enrollment'>('course');
   readonly customLabel = input<string | null>(null);
 
   readonly normalizedStatus = computed(() => {
-    return this.status().toLowerCase();
+    return this.status()?.toLowerCase() ?? 'unknown';
   });
 
   readonly label = computed(() => {
@@ -114,7 +114,7 @@ export class StatusBadgeComponent {
       case 'ARCHIVED':
         return 'Archivée';
       default:
-        return this.status();
+        return this.status() ?? 'Inconnu';
     }
   });
 }
