@@ -48,6 +48,7 @@ header (`localhost:8072`) reaches the backend. This is what makes the generated 
 - A running **Eureka Server**, otherwise `lb://` routes cannot resolve any instance.
 - A running **Config Server** for the standard configuration (the import is optional, so the
   gateway still starts without it, using the defaults in `application.properties`).
+- A running **Keycloak** for JWT authentication and the JWKS endpoint.
 
 ## 3. Security (OAuth2 / OIDC & RBAC)
 
@@ -95,6 +96,31 @@ gateway.security.audience=api-gateway
 gateway.security.swagger-public=${GATEWAY_SWAGGER_PUBLIC:true}
 gateway.cors.allowed-origins=*
 ```
+
+### Root Compose / Keycloak wiring
+
+The root `gl5-g4-student` Compose stack runs Keycloak as the separate service
+`keycloak-service` (container `gl5-keycloak-service`). The gateway validates its JWTs and
+does not embed Keycloak. The relevant environment values are:
+
+```yaml
+KEYCLOAK_ISSUER_URI: http://localhost:8080/realms/gl5
+JWK_SET_URI: http://keycloak-service:8080/realms/gl5/protocol/openid-connect/certs
+```
+
+- `KEYCLOAK_ISSUER_URI` is the browser-facing token issuer and must match the JWT `iss`.
+- `JWK_SET_URI` is the internal Compose address used by the gateway to fetch signing keys.
+  Using `localhost:8080` here would point at the gateway container itself.
+- The gateway depends on `keycloak-service` with `condition: service_started`. Keycloak has
+  no Docker healthcheck because its official image removes `curl`.
+
+CORS is owned by the gateway:
+
+- `gateway.cors.allowed-origins=*` is intentional for local development.
+- `PreserveHostHeader` remains enabled for Swagger and backend routing.
+- Backend controllers must not add `@CrossOrigin`; the annotation was removed from the
+  student and enrollment controllers. No `DedupeResponseHeader` filter is needed, and adding
+  one would only mask a duplicate CORS source.
 
 ### Authenticating Requests
 
@@ -178,6 +204,8 @@ The service listens on `http://localhost:8072`. Overridable environment variable
 | `EUREKA_URL`        | `http://localhost:8761/eureka/` |
 | `CONFIG_SERVER_URL` | `http://localhost:8071`     |
 | `CONFIG_USER` / `CONFIG_PASSWORD` | `config` / `change-me` |
+| `KEYCLOAK_ISSUER_URI` | `http://localhost:8080/realms/gl5` |
+| `JWK_SET_URI`       | empty (derived from issuer when possible) |
 
 Docker (build context is the repository root):
 
@@ -186,8 +214,24 @@ docker compose up -d --build api-gateway      # from the repository root
 docker compose logs -f api-gateway
 ```
 
-In Docker it runs with `SPRING_PROFILES_ACTIVE=docker` and fetches its environment-specific
-configuration (port, Eureka URL) from the Config Server.
+In the full root stack, start everything with `docker compose up -d --build`. The gateway
+runs with `SPRING_PROFILES_ACTIVE=docker`, fetches its environment-specific configuration
+from the Config Server, and uses `keycloak-service` for JWKS.
+
+Verification with a Keycloak token:
+
+```sh
+TOKEN=$(curl -s -X POST http://localhost:8080/realms/gl5/protocol/openid-connect/token \
+  -d grant_type=password -d client_id=gl5-smoke -d username=admin -d password=admin \
+  | sed -n 's/.*"access_token":"\([^"]*\)".*/\1/p')
+
+# Without a token: 401
+curl -s -o /dev/null -w '%{http_code}\n' http://localhost:8072/department/api/departments
+
+# With a valid token: 200
+curl -s -o /dev/null -w '%{http_code}\n' \
+  -H "Authorization: Bearer $TOKEN" http://localhost:8072/department/api/departments
+```
 
 Tests:
 

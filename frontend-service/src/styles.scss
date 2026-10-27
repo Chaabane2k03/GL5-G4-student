@@ -1,0 +1,137 @@
+// Feuille de style globale Cursus — Sans Tailwind, Sans Material, SCSS pur + Angular CDK
+@use '@fontsource/fraunces/latin.css' as fraunces;
+@use '@fontsource/source-sans-3/latin.css' as sourceSans;
+@use 'styles/tokens';
+
+// CDK Styles nécessaires pour overlays, dialogs, drag & drop
+@import '@angular/cdk/overlay-prebuilt.css';
+
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html, body {
+  height: 100%;
+  width: 100%;
+  background-color: var(--color-canvas-bg);
+  color: var(--color-text-main);
+  font-family: var(--font-family-body);
+  font-size: 16px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+h1, h2, h3, h4, .font-display, .font-serif {
+  font-family: var(--font-family-display);
+  font-feature-settings: 'cv01' on, 'cv02' on;
+  letter-spacing: -0.015em;
+  font-weight: 600;
+  color: var(--color-text-headline);
+}
+
+.tabular-nums, .font-mono {
+  font-family: var(--font-family-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+button {
+  background: none;
+  border: none;
+  font: inherit;
+  cursor: pointer;
+  color: inherit;
+
+  &:disabled {
+    cursor: not-allowed;
+    opacity: 0.55;
+  }
+}
+
+input, select, textarea {
+  font: inherit;
+  color: inherit;
+}
+
+// Focus ring accessible AA
+:focus-visible {
+  outline: 2px solid var(--color-primary-container);
+  outline-offset: 2px;
+}
+
+// Utilitaires de grand-livre (Ledger Paper & Grids)
+.page-container {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 2rem 1.5rem;
+}
+
+.card-paper {
+  background-color: var(--color-surface-paper);
+  border: 1px solid var(--color-border-hairline);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+}
+
+.ledger-table-wrapper {
+  background-color: var(--color-surface-paper);
+  border: 1px solid var(--color-border-hairline);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  box-shadow: var(--shadow-sm);
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    text-align: left;
+    font-size: var(--font-size-body-sm);
+
+    thead th {
+      background-color: var(--color-surface-subtle);
+      border-bottom: 2px solid var(--color-border-hairline);
+      color: var(--color-text-muted);
+      font-size: var(--font-size-caption);
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      padding: 0.75rem 1rem;
+    }
+
+    tbody tr {
+      border-bottom: 1px solid var(--color-border-hairline);
+      transition: background-color var(--transition-fast);
+
+      &:hover {
+        background-color: var(--color-surface-hover);
+      }
+
+      &:last-child {
+        border-bottom: none;
+      }
+
+      td {
+        padding: 0.85rem 1rem;
+        vertical-align: middle;
+      }
+    }
+  }
+}
+
+// Doubles règles comptables pour les pieds de tableaux
+.ledger-footer-rules {
+  background-color: var(--color-surface-subtle);
+  border-top: 2px solid var(--color-border-hairline);
+  padding: 0.75rem 1rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: var(--font-size-caption);
+  color: var(--color-text-muted);
+}

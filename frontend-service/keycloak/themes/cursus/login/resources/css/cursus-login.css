@@ -1,0 +1,346 @@
+@font-face {
+  font-family: 'Fraunces';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url('../fonts/fraunces-latin-600.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'Fraunces';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url('../fonts/fraunces-latin-700.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'Source Sans 3';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('../fonts/source-sans-3-latin-400.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'Source Sans 3';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url('../fonts/source-sans-3-latin-600.woff2') format('woff2');
+}
+
+:root {
+  --cursus-canvas: #f6f1e7;
+  --cursus-paper: #fffcf6;
+  --cursus-surface: #f0eae1;
+  --cursus-ink: #201a17;
+  --cursus-headline: #2a2420;
+  --cursus-muted: #5d544c;
+  --cursus-subtle: #8a7e74;
+  --cursus-hairline: #ddd3c2;
+  --cursus-primary: #154537;
+  --cursus-primary-hover: #244b3e;
+  --cursus-secondary: #9a4523;
+  --cursus-error: #ba1a1a;
+  --cursus-error-bg: #ffdad6;
+
+  --pf-v5-global--FontFamily--text: 'Source Sans 3', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --pf-v5-global--FontFamily--heading: 'Fraunces', 'Source Serif 4', Georgia, serif;
+  --pf-v5-global--primary-color--100: var(--cursus-primary);
+  --pf-v5-global--primary-color--200: var(--cursus-primary-hover);
+  --pf-v5-global--link--Color: var(--cursus-primary);
+  --pf-v5-global--link--Color--hover: var(--cursus-secondary);
+  --pf-v5-global--BorderColor--100: var(--cursus-hairline);
+  --pf-v5-global--BorderColor--200: #c8bdab;
+  --pf-v5-global--Color--100: var(--cursus-ink);
+  --pf-v5-global--Color--200: var(--cursus-muted);
+  --keycloak-card-top-color: var(--cursus-primary);
+  --keycloak-bg-logo-url: none;
+}
+
+.login-pf body {
+  min-height: 100vh;
+  color: var(--cursus-ink);
+  font-family: var(--pf-v5-global--FontFamily--text);
+  background-color: var(--cursus-canvas);
+  background-image: radial-gradient(var(--cursus-hairline) 1px, transparent 1px);
+  background-size: 24px 24px;
+  background-position: center;
+  background-attachment: fixed;
+}
+
+.pf-v5-c-login {
+  min-height: 100vh;
+  padding: 2rem 1.25rem;
+}
+
+.pf-v5-c-login__container {
+  grid-template-columns: min(100%, 30rem);
+  grid-template-areas:
+    'header'
+    'main';
+  row-gap: 1.25rem;
+}
+
+#kc-header {
+  margin-top: 0;
+  text-align: center;
+}
+
+#kc-header::before {
+  content: '';
+  display: block;
+  width: 54px;
+  height: 54px;
+  margin: 0 auto 1rem;
+  border: 1px solid var(--cursus-primary);
+  border-radius: 50%;
+  background:
+    radial-gradient(circle at 50% 42%, var(--cursus-primary) 0 18%, transparent 19%),
+    linear-gradient(135deg, transparent 42%, var(--cursus-primary) 43% 44%, transparent 45%),
+    var(--cursus-paper);
+  box-shadow: 0 0 0 4px rgba(21, 69, 55, 0.08);
+}
+
+#kc-header-wrapper {
+  color: var(--cursus-primary);
+  font-family: var(--pf-v5-global--FontFamily--heading);
+  font-size: 2.15rem;
+  font-weight: 600;
+  letter-spacing: 0.18em;
+  line-height: 1.1;
+  text-transform: uppercase;
+  white-space: normal;
+}
+
+#kc-header-wrapper::after {
+  content: 'REGISTRE ET ADMINISTRATION UNIVERSITAIRE';
+  display: block;
+  margin-top: 0.65rem;
+  color: var(--cursus-muted);
+  font-family: var(--pf-v5-global--FontFamily--text);
+  font-size: 0.66rem;
+  font-weight: 600;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+}
+
+.pf-v5-c-login__main {
+  overflow: hidden;
+  background-color: var(--cursus-paper);
+  border: 1px solid var(--cursus-hairline);
+  border-radius: 12px;
+  box-shadow:
+    0 20px 25px -5px rgba(42, 36, 32, 0.16),
+    0 8px 10px -6px rgba(42, 36, 32, 0.08);
+}
+
+.pf-v5-c-login__main-header {
+  padding: 1.4rem 2rem 0.4rem;
+  border-top: 4px solid var(--cursus-primary);
+}
+
+#kc-page-title {
+  color: var(--cursus-headline);
+  font-family: var(--pf-v5-global--FontFamily--heading);
+  font-size: 1.55rem;
+  font-weight: 600;
+  letter-spacing: -0.015em;
+}
+
+.pf-v5-c-login__main-body {
+  padding: 1.2rem 2rem 1.5rem;
+}
+
+.pf-v5-c-login__main-footer {
+  padding: 0 2rem 1.25rem;
+  background-color: transparent;
+}
+
+#kc-form,
+#kc-form-wrapper,
+#kc-form-login {
+  width: 100%;
+}
+
+.pf-v5-c-form__group {
+  margin-bottom: 1.1rem;
+}
+
+.pf-v5-c-form__group-label {
+  padding-bottom: 0.35rem;
+}
+
+.pf-v5-c-form__label,
+.pf-v5-c-form__label-text {
+  color: var(--cursus-muted);
+  font-size: 0.76rem;
+  font-weight: 600;
+  letter-spacing: 0.055em;
+  text-transform: uppercase;
+}
+
+.pf-v5-c-form-control {
+  min-height: 44px;
+  background-color: #ffffff;
+  border: 1px solid var(--cursus-hairline);
+  border-radius: 6px;
+  box-shadow: none;
+  transition:
+    border-color 150ms ease,
+    box-shadow 150ms ease;
+}
+
+.pf-v5-c-form-control::after {
+  border-bottom-color: transparent;
+}
+
+.pf-v5-c-form-control:focus-within {
+  border-color: var(--cursus-primary);
+  box-shadow: 0 0 0 3px rgba(21, 69, 55, 0.14);
+  outline: none;
+}
+
+.pf-v5-c-form-control > input {
+  min-height: 42px;
+  padding: 0.55rem 0.8rem;
+  color: var(--cursus-ink);
+  font-family: inherit;
+  font-size: 0.95rem;
+}
+
+.pf-v5-c-form-control.pf-m-error {
+  border-color: var(--cursus-error);
+}
+
+.pf-v5-c-input-group {
+  width: 100%;
+}
+
+.pf-v5-c-button.pf-m-control {
+  min-height: 44px;
+  color: var(--cursus-primary);
+  background-color: var(--cursus-surface);
+  border: 1px solid var(--cursus-hairline);
+  border-left: 0;
+  border-radius: 0 6px 6px 0;
+}
+
+.pf-v5-c-button.pf-m-control:hover {
+  background-color: #e5dfd4;
+}
+
+.pf-v5-c-button.pf-m-primary {
+  padding: 0.75rem 1rem;
+  color: #ffffff;
+  font-family: inherit;
+  font-size: 0.92rem;
+  font-weight: 600;
+  letter-spacing: 0.035em;
+  text-transform: uppercase;
+  background-color: var(--cursus-primary);
+  border-color: var(--cursus-primary);
+  border-radius: 6px;
+  box-shadow: 0 1px 2px rgba(42, 36, 32, 0.08);
+  transition:
+    background-color 150ms ease,
+    border-color 150ms ease,
+    box-shadow 150ms ease;
+}
+
+.pf-v5-c-button.pf-m-primary:hover,
+.pf-v5-c-button.pf-m-primary:focus {
+  background-color: var(--cursus-primary-hover);
+  border-color: var(--cursus-primary-hover);
+  box-shadow: 0 4px 6px -1px rgba(42, 36, 32, 0.16);
+}
+
+.pf-v5-c-button.pf-m-primary:active {
+  background-color: #1c3c32;
+  border-color: #1c3c32;
+}
+
+#kc-login {
+  width: 100%;
+  margin-top: 0.35rem;
+}
+
+.pf-v5-c-check__label {
+  color: var(--cursus-muted);
+  font-size: 0.84rem;
+}
+
+a {
+  color: var(--cursus-primary);
+  font-weight: 600;
+}
+
+a:hover,
+a:focus {
+  color: var(--cursus-secondary);
+}
+
+.pf-v5-c-helper-text__item-text {
+  color: var(--cursus-error);
+  font-size: 0.78rem;
+}
+
+.pf-v5-c-alert {
+  font-family: inherit;
+  border-radius: 6px;
+}
+
+.pf-v5-c-alert.pf-m-danger,
+.pf-v5-c-alert.pf-m-inline.pf-m-danger {
+  background-color: var(--cursus-error-bg);
+  border-left: 4px solid var(--cursus-error);
+}
+
+.pf-v5-c-alert__title {
+  color: #7a1010;
+  font-weight: 600;
+}
+
+.pf-v5-c-alert__description {
+  color: #5c1717;
+}
+
+.pf-v5-c-login__main-footer-band {
+  border-top: 1px solid var(--cursus-hairline);
+}
+
+#kc-registration,
+#kc-info-wrapper {
+  color: var(--cursus-muted);
+  font-size: 0.85rem;
+}
+
+.pf-v5-c-login__main-header-utilities .pf-v5-c-form-control {
+  min-height: 36px;
+}
+
+.pf-v5-c-login__main-header-utilities .pf-v5-c-form-control > select {
+  padding: 0.35rem 2rem 0.35rem 0.6rem;
+  color: var(--cursus-muted);
+  background-color: var(--cursus-paper);
+  border: 0;
+}
+
+@media (max-width: 480px) {
+  .pf-v5-c-login {
+    padding: 1.5rem 0.85rem;
+  }
+
+  #kc-header-wrapper {
+    font-size: 1.75rem;
+    letter-spacing: 0.13em;
+  }
+
+  .pf-v5-c-login__main-header,
+  .pf-v5-c-login__main-body,
+  .pf-v5-c-login__main-footer {
+    padding-right: 1.25rem;
+    padding-left: 1.25rem;
+  }
+}

@@ -1,0 +1,179 @@
+import { computed, inject, Injectable, signal } from '@angular/core';
+import Keycloak, { type KeycloakInitOptions } from 'keycloak-js';
+import { ConfigService } from '../config/runtime-config';
+
+export interface UserProfile {
+  username: string;
+  email?: string;
+  firstName?: string;
+  lastName?: string;
+  fullName: string;
+}
+
+@Injectable({
+  providedIn: 'root',
+})
+export class AuthService {
+  private readonly configService = inject(ConfigService);
+
+  private keycloakInstance: Keycloak | null = null;
+
+  // Signaux réactifs d'état d'authentification
+  readonly isInitialized = signal<boolean>(false);
+  readonly isAuthenticated = signal<boolean>(false);
+  readonly isKeycloakAvailable = signal<boolean>(true);
+  readonly isSessionExpired = signal<boolean>(false);
+  readonly token = signal<string | null>(null);
+  readonly currentUser = signal<UserProfile | null>(null);
+
+  readonly authServerUrl = computed(() => this.configService.keycloak.url);
+
+  // Prénom pour la salutation du tableau de bord
+  readonly greetingName = computed(() => {
+    const user = this.currentUser();
+    return user?.firstName || '';
+  });
+
+  async init(checkSso = true): Promise<boolean> {
+    const kcConfig = this.configService.keycloak;
+
+    if (!kcConfig.url || !kcConfig.realm || !kcConfig.clientId) {
+      console.error("Configuration Keycloak absente : le serveur d'authentification est injoignable.");
+      this.keycloakInstance = null;
+      this.isKeycloakAvailable.set(false);
+      this.isAuthenticated.set(false);
+      this.token.set(null);
+      this.currentUser.set(null);
+      this.isInitialized.set(true);
+      return false;
+    }
+
+    try {
+      this.keycloakInstance = new Keycloak({
+        url: kcConfig.url,
+        realm: kcConfig.realm,
+        clientId: kcConfig.clientId,
+      });
+
+      const initOptions: KeycloakInitOptions = {
+        pkceMethod: 'S256',
+        flow: 'standard',
+        checkLoginIframe: false,
+        enableLogging: false,
+      };
+
+      if (checkSso) {
+        initOptions.onLoad = 'check-sso';
+        initOptions.silentCheckSsoRedirectUri = `${window.location.origin}/silent-check-sso.html`;
+      }
+
+      const authenticated = await this.keycloakInstance.init(initOptions);
+
+      this.isKeycloakAvailable.set(true);
+      this.isAuthenticated.set(authenticated);
+
+      if (authenticated) {
+        this.token.set(this.keycloakInstance.token || null);
+        this.extractUserProfile();
+      }
+
+      this.isInitialized.set(true);
+      return authenticated;
+    } catch (error) {
+      console.error("Le serveur d'authentification est injoignable.", error);
+      this.keycloakInstance = null;
+      this.isKeycloakAvailable.set(false);
+      this.isAuthenticated.set(false);
+      this.token.set(null);
+      this.currentUser.set(null);
+      this.isInitialized.set(true);
+      return false;
+    }
+  }
+
+  async retryConnection(): Promise<boolean> {
+    this.isInitialized.set(false);
+    await this.configService.load();
+    return this.init();
+  }
+
+  async login(): Promise<void> {
+    if (!this.keycloakInstance) {
+      await this.init(false);
+    }
+    if (!this.keycloakInstance || !this.isKeycloakAvailable()) {
+      return;
+    }
+    try {
+      await this.keycloakInstance.login({
+        redirectUri: `${window.location.origin}/tableau-de-bord`,
+      });
+    } catch (error) {
+      console.error('Erreur lors de la redirection vers Keycloak:', error);
+      this.isKeycloakAvailable.set(false);
+      this.isAuthenticated.set(false);
+    }
+  }
+
+  async logout(): Promise<void> {
+    this.isAuthenticated.set(false);
+    this.token.set(null);
+    this.currentUser.set(null);
+
+    if (this.keycloakInstance && this.isKeycloakAvailable()) {
+      try {
+        await this.keycloakInstance.logout({
+          redirectUri: `${window.location.origin}/connexion`,
+        });
+      } catch {
+        window.location.href = '/connexion';
+      }
+    } else {
+      window.location.href = '/connexion';
+    }
+  }
+
+  async updateToken(minValidity = 30): Promise<string | null> {
+    if (!this.keycloakInstance || !this.isAuthenticated()) {
+      return null;
+    }
+    try {
+      const refreshed = await this.keycloakInstance.updateToken(minValidity);
+      if (refreshed) {
+        this.token.set(this.keycloakInstance.token || null);
+      }
+      return this.keycloakInstance.token || null;
+    } catch (error) {
+      console.warn('Expiration du jeton Keycloak, session expirée:', error);
+      this.isAuthenticated.set(false);
+      this.token.set(null);
+      this.isSessionExpired.set(true);
+      return null;
+    }
+  }
+
+  closeSessionExpiredModal(): void {
+    this.isSessionExpired.set(false);
+  }
+
+  private extractUserProfile(): void {
+    if (!this.keycloakInstance?.tokenParsed) {
+      return;
+    }
+    const parsed = this.keycloakInstance.tokenParsed as Record<string, unknown>;
+    const firstName = (parsed['given_name'] as string) || '';
+    const lastName = (parsed['family_name'] as string) || '';
+    const email = (parsed['email'] as string) || '';
+    const username = (parsed['preferred_username'] as string) || 'admin';
+    const fullName =
+      firstName && lastName ? `${firstName} ${lastName}` : firstName || username || 'Administrateur';
+
+    this.currentUser.set({
+      username,
+      email,
+      firstName,
+      lastName,
+      fullName,
+    });
+  }
+}

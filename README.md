@@ -1,20 +1,30 @@
 # GL5-G4 Student Management Platform
 
 A Spring Boot microservices platform for managing students, courses, departments and
-enrollments. All runtime configuration is served by a **Config Server** backed by a
-private Git repository, services register with **Eureka**, each service owns its own
-**MySQL** database, and the whole stack runs with a single **Docker Compose** command.
+enrollments, with a production-style Angular frontend and Keycloak authentication. All
+runtime configuration is served by a **Config Server** backed by a private Git repository,
+services register with **Eureka**, each service owns its own **MySQL** database, and the
+whole stack runs with a single **Docker Compose** command.
 
 ## Architecture
 
 ```
-                        +---------------------+
-                        |    API Gateway      |  :8072   (single entry point)
-                        | /department         |  routes to every service below
-                        | /course /enrollment |
-                        | /student            |
-                        +----------+----------+
-                                   | lb://<service-id> (resolved via Eureka)
+                 +--------------------------+
+                 |  Angular frontend        |  :4200  (nginx)
+                 |  custom Keycloak theme   |
+                 +------------+-------------+
+                              |
+              +---------------+----------------+
+              |                                |
+   +----------v-----------+        +-----------v-----------+
+   |      Keycloak        |        |      API Gateway      |  :8072
+   |      :8080           |        |  /department          |
+   |  realm gl5 / cursus  |        |  /course /enrollment  |
+   +----------+-----------+        |  /student             |
+              |                    +-----------+-----------+
+              | JWKS                           | lb://<service-id> (Eureka)
+              +--------------------------------+
+                                   |
                         +----------+----------+
                         |   Config Server     |  :8071  (Basic Auth)
                         |  Git-backed config  |<---------+
@@ -37,6 +47,11 @@ private Git repository, services register with **Eureka**, each service owns its
                                         gl5-net (bridge network)
 ```
 
+The browser talks to the frontend (`:4200`), Keycloak (`:8080`) and the API Gateway
+(`:8072`) on the host. The gateway validates Keycloak JWTs and uses the internal Compose
+hostname `keycloak-service` to fetch the signing keys. The login page is served by
+Keycloak using the local `cursus` theme; it is not part of the Angular bundle.
+
 Each service starts by importing its configuration from the Config Server
 (`spring.config.import=optional:configserver:...`). Datasource passwords are stored as
 `{cipher}` values in the config repository and decrypted **server-side** by the Config
@@ -50,7 +65,7 @@ Server, so the services never see the symmetric key.
   (`https://github.com/Chaabane2k03/config-repo.git`) and a **Personal Access Token**
   with read access to it.
 - The project's **`ENCRYPT_KEY`** (see [Configuration secrets](#configuration-secrets)).
-- Enough free RAM for the containers (4 MySQL + 7 JVMs); ~4 GB is comfortable.
+- Enough free RAM for the containers (4 MySQL, 7 Spring JVMs, Keycloak and nginx); ~6 GB is comfortable.
 
 > All images are built from source inside Docker, so a local JDK/Maven installation is
 > **not** required to run the stack.
@@ -103,10 +118,10 @@ ENCRYPT_KEY=the-project-shared-encryption-key
 docker compose up -d --build
 ```
 
-The first run pulls the MySQL/Maven/JRE base images and builds seven service images, so it
-can take several minutes. Compose starts the databases and the Config Server first
-(waits until they are healthy), then starts Eureka and the four business services, and
-finally the API Gateway.
+The first run pulls the MySQL, Maven/JRE and Keycloak base images and builds eight service
+images, so it can take several minutes. Compose starts the databases and the Config Server
+first (waits until they are healthy), then starts Eureka, Keycloak and the four business
+services, and finally the API Gateway and frontend.
 
 ### 4. Check that everything is up
 
@@ -114,13 +129,16 @@ finally the API Gateway.
 docker compose ps
 ```
 
-All containers should report `(healthy)` once the start-up grace periods elapse
-(roughly 60–90 seconds).
+The backend containers with healthchecks should report `(healthy)` once the start-up grace
+periods elapse (roughly 60–90 seconds). `keycloak-service` reports `Up` without a Docker
+healthcheck because the official image removes `curl`; the frontend reports `(healthy)`.
 
 ## Service endpoints
 
 | Service             | Container               | Port   | Context path    |
 | ------------------- | ----------------------- | ------ | --------------- |
+| Frontend            | `gl5-frontend-service`  | `4200` | `/` (nginx SPA) |
+| Keycloak            | `gl5-keycloak-service`  | `8080` | `/realms/gl5`   |
 | API Gateway         | `gl5-api-gateway`       | `8072` | `/` (routes below) |
 | Config Server       | `gl5-config-server`     | `8071` | `/`             |
 | Eureka Server       | `gl5-eureka-server`     | `8761` | `/`             |
@@ -145,6 +163,8 @@ own context path and resolves the backing instances through Eureka (`lb://<servi
 ### Verify
 
 ```sh
+# Frontend (browser):               http://localhost:4200
+# Keycloak (browser):               http://localhost:8080  (admin / admin)
 # Eureka dashboard (browser):       http://localhost:8761
 # Swagger UI (browser):             http://localhost:8072/swagger-ui.html
 # Service health (direct):          all return {"status":"UP"}
@@ -162,6 +182,41 @@ curl http://localhost:8072/actuator/health
 
 # Config Server (Basic Auth required)
 curl -u "$CONFIG_USER:$CONFIG_PASSWORD" http://localhost:8071/actuator/health
+```
+
+Keycloak does not expose a Docker healthcheck because the official image intentionally
+removes `curl`. Give it a few seconds after `docker compose up` before opening the
+frontend. The gateway fetches the signing keys from
+`http://keycloak-service:8080/realms/gl5/protocol/openid-connect/certs`.
+
+## Frontend and authentication
+
+- Frontend: `http://localhost:4200`
+- Keycloak: `http://localhost:8080`
+- Local Keycloak administrator: `admin` / `admin`
+- Application user: `admin` / `admin` with the `ADMIN` role
+- Realm: `gl5`
+- SPA client: `cursus-frontend` (public, PKCE S256)
+- Login theme: `cursus`, mounted from `frontend-service/keycloak/themes`
+
+The Angular app redirects the browser to Keycloak for login. The login page, theme and
+fonts are served by Keycloak, not by nginx. After changing the realm or theme, recreate
+the Keycloak container so the realm is imported again.
+
+The gateway uses these values from the root Compose file:
+
+```yaml
+KEYCLOAK_ISSUER_URI: http://localhost:8080/realms/gl5
+JWK_SET_URI: http://keycloak-service:8080/realms/gl5/protocol/openid-connect/certs
+```
+
+`KEYCLOAK_ISSUER_URI` is the browser-facing token issuer. `JWK_SET_URI` is the internal
+Compose address used by the gateway to fetch public signing keys.
+
+Seed the demo data after the stack and Keycloak are ready:
+
+```powershell
+npm --prefix frontend-service run seed
 ```
 
 ### Example API calls
@@ -239,9 +294,13 @@ encryption and the native (no-Git) profile.
 # Follow logs of a single service
 docker compose logs -f config-server
 docker compose logs -f course-service
+docker compose logs -f api-gateway
+docker compose logs -f keycloak-service
+docker compose logs -f frontend-service
 
 # Restart one service after changing code
 docker compose up -d --build course-service
+docker compose up -d --build frontend-service
 
 # Stop everything (keep database data)
 docker compose down
@@ -324,6 +383,10 @@ cd course-service
 | Services return `401`/`Connection refused` to the Config Server | `CONFIG_USER`/`CONFIG_PASSWORD` must be identical in `config-server/.env` (they are reused by every service). |
 | A service is `unhealthy` but the app is running | Health checks use the context path (e.g. `/course/actuator/health`). Allow the ~60 s start-up grace period before investigating. |
 | Requests to `http://localhost:8072/<service>/...` return `503 Service Unavailable` | The gateway could not resolve a healthy instance. Wait ~30 s after start-up (Eureka registration interval) or check the target service in the Eureka dashboard. |
+| Frontend login fails or the gateway returns `401` for a valid token | Make sure `KEYCLOAK_ISSUER_URI` is `http://localhost:8080/realms/gl5` and the token was issued through `localhost`, not `127.0.0.1`. |
+| Gateway logs show a JWKS connection error | `JWK_SET_URI` must use `http://keycloak-service:8080/...` from inside `gl5-net`, not `localhost:8080`. |
+| Two `Access-Control-Allow-Origin` headers appear | A backend `@CrossOrigin` annotation was reintroduced or an extra CORS filter was added. The gateway must be the only CORS source. |
+| Keycloak theme missing after a change | Recreate `keycloak-service`; theme files are mounted read-only and loaded at startup. |
 | Build fails for a service | Make sure you used `docker compose up -d --build` (never pass `--no-build`); all services build from source. |
 
 ## Observability (Prometheus + Grafana + Jaeger + Loki)
@@ -411,7 +474,8 @@ For the proposed resilience, messaging, CI/CD, security, and deployment roadmap,
 ├── enrollment-service/  # Enrollment CRUD API       (context path /enrollment)
 ├── course-service/      # Course CRUD API           (context path /course)
 ├── student-service/     # Student CRUD API          (context path /student)
-├── docker-compose.yml   # Full local stack
+├── frontend-service/    # Angular SPA + Keycloak realm/theme + nginx image
+├── docker-compose.yml   # Full local stack (backend, frontend, Keycloak)
 ├── docker-compose.sonar.yml  # Shared SonarQube + PostgreSQL
 ├── sonar-scan-all.ps1   # Build, test and scan every service
 └── terraform/           # Infrastructure as code (deployment, managed separately)
