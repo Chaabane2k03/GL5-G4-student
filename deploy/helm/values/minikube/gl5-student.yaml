@@ -14,7 +14,7 @@
 frontend:
   image:
     repository: gl5-g4-frontend-service
-    tag: fix-enrollment-null-status
+    tag: local
     pullPolicy: IfNotPresent
   ingress:
     className: nginx
