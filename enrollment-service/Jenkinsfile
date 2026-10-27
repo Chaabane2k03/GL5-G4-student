@@ -1,6 +1,12 @@
 pipeline {
     agent any
 
+    // Provided by the controller image and declared in jenkins/casc.yaml.
+    tools {
+        jdk 'JDK17'
+        maven 'Maven3'
+    }
+
     options {
         timestamps()
     }
