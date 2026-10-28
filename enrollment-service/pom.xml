@@ -103,7 +103,19 @@
             <artifactId>spring-boot-starter-test</artifactId>
             <scope>test</scope>
         </dependency>
-    </dependencies>
+    </dependencies> 
+    
+    <distributionManagement>
+        <snapshotRepository>
+            <id>nexus-snapshots</id>
+            <url>http://host.docker.internal:8081/repository/maven-snapshots/</url>
+        </snapshotRepository>
+        <repository>
+            <id>nexus-releases</id>
+            <url>http://host.docker.internal:8081/repository/maven-releases/</url>
+        </repository>
+    </distributionManagement>
+
 
     <build>
         <plugins>

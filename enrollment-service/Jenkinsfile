@@ -1,3 +1,4 @@
+
 pipeline {
     agent any
 
@@ -5,10 +6,17 @@ pipeline {
         timestamps()
     }
 
-    // NEW: opt-in switch so normal builds never touch AWS
     parameters {
-        booleanParam(name: 'PUSH_TO_ECR', defaultValue: false,
-                     description: 'Push image to ECR (needs lab running + ECR repos created)')
+        booleanParam(
+            name: 'PUSH_TO_ECR',
+            defaultValue: false,
+            description: 'Push image to ECR (needs lab running + ECR repos created)'
+        )
+        booleanParam(
+            name: 'PUBLISH_RELEASE',
+            defaultValue: false,
+            description: 'Publish version 1.0.<build> to Nexus maven-releases (otherwise a snapshot)'
+        )
     }
 
     stages {
@@ -26,8 +34,10 @@ pipeline {
             }
             post {
                 always {
-                    junit allowEmptyResults: true,
-                          testResults: 'enrollment-service/target/surefire-reports/TEST-*.xml'
+                    junit(
+                        allowEmptyResults: true,
+                        testResults: 'enrollment-service/target/surefire-reports/TEST-*.xml'
+                    )
                 }
             }
         }
@@ -46,17 +56,70 @@ pipeline {
             }
         }
 
-        stage('Docker Build') {
+        // Publish a snapshot by default, or 1.0.<build> as a release.
+        stage('Publish to Nexus') {
             steps {
-                dir('enrollment-service') {
-                    sh 'docker build -t enrollment-service:${BUILD_NUMBER} -t enrollment-service:latest .'
+                withCredentials([
+                    usernamePassword(
+                        credentialsId: 'nexus-creds',
+                        usernameVariable: 'NEXUS_USER',
+                        passwordVariable: 'NEXUS_PASS'
+                    )
+                ]) {
+                    dir('enrollment-service') {
+                        sh '''
+                            set +x
+                            trap 'rm -f settings.xml' EXIT
+
+                            cat > settings.xml <<EOF
+<settings>
+  <servers>
+    <server>
+      <id>nexus-snapshots</id>
+      <username>${NEXUS_USER}</username>
+      <password>${NEXUS_PASS}</password>
+    </server>
+    <server>
+      <id>nexus-releases</id>
+      <username>${NEXUS_USER}</username>
+      <password>${NEXUS_PASS}</password>
+    </server>
+  </servers>
+</settings>
+EOF
+
+                            if [ "$PUBLISH_RELEASE" = "true" ]; then
+                                mvn -B versions:set \
+                                  -DnewVersion=1.0.${BUILD_NUMBER} \
+                                  -DgenerateBackupPoms=false
+                            fi
+
+                            mvn -B -s settings.xml deploy -DskipTests
+                        '''
+                    }
                 }
             }
         }
 
-        // NEW: validates the team's Terraform without touching AWS
+        stage('Docker Build') {
+            steps {
+                dir('enrollment-service') {
+                    sh '''
+                        docker build \
+                          -t enrollment-service:${BUILD_NUMBER} \
+                          -t enrollment-service:latest .
+                    '''
+                }
+            }
+        }
+
+        // Validate Terraform without modifying AWS resources.
         stage('Terraform Validate') {
-            when { expression { fileExists('deploy/terraform') } }
+            when {
+                expression {
+                    fileExists('deploy/terraform')
+                }
+            }
             steps {
                 dir('deploy/terraform') {
                     sh '''
@@ -68,28 +131,94 @@ pipeline {
             }
         }
 
-        // NEW: only runs when you tick PUSH_TO_ECR
+        // Push to ECR only when the parameter is enabled.
         stage('Push to ECR') {
-            when { expression { params.PUSH_TO_ECR } }
+            when {
+                expression {
+                    params.PUSH_TO_ECR
+                }
+            }
             steps {
                 withCredentials([
-                    string(credentialsId: 'aws-access-key-id',     variable: 'AWS_ACCESS_KEY_ID'),
-                    string(credentialsId: 'aws-secret-access-key', variable: 'AWS_SECRET_ACCESS_KEY'),
-                    string(credentialsId: 'aws-session-token',     variable: 'AWS_SESSION_TOKEN')
+                    string(
+                        credentialsId: 'aws_access_key_id',
+                        variable: 'AWS_ACCESS_KEY_ID'
+                    ),
+                    string(
+                        credentialsId: 'aws_secret_access_key',
+                        variable: 'AWS_SECRET_ACCESS_KEY'
+                    ),
+                    string(
+                        credentialsId: 'aws_session_token',
+                        variable: 'AWS_SESSION_TOKEN'
+                    )
                 ]) {
                     sh '''
+                        set +x
                         export AWS_DEFAULT_REGION=us-east-1
-                        ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
-                        REGISTRY=$ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com
-                        REPO=$REGISTRY/gl5-g4-enrollment-service
 
-                        aws ecr get-login-password | docker login --username AWS --password-stdin $REGISTRY
+                        ACCOUNT_ID=$(aws sts get-caller-identity \
+                          --query Account --output text)
+                        REGISTRY="${ACCOUNT_ID}.dkr.ecr.${AWS_DEFAULT_REGION}.amazonaws.com"
+                        REPO="${REGISTRY}/gl5-g4-enrollment-service"
 
-                        docker tag enrollment-service:$BUILD_NUMBER $REPO:$BUILD_NUMBER
-                        docker tag enrollment-service:$BUILD_NUMBER $REPO:latest
-                        docker push $REPO:$BUILD_NUMBER
-                        docker push $REPO:latest
+                        aws ecr get-login-password \
+                          | docker login --username AWS --password-stdin "$REGISTRY"
+
+                        docker tag enrollment-service:${BUILD_NUMBER} "$REPO:${BUILD_NUMBER}"
+                        docker tag enrollment-service:${BUILD_NUMBER} "$REPO:latest"
+
+                        docker push "$REPO:${BUILD_NUMBER}"
+                        docker push "$REPO:latest"
                     '''
+                }
+            }
+        }
+
+        // Mark the stage unstable if Prometheus cannot see the service.
+        stage('Prometheus Check') {
+            steps {
+                catchError(
+                    buildResult: 'SUCCESS',
+                    stageResult: 'UNSTABLE'
+                ) {
+                    sh '''
+                        curl -fsS --get \
+                          'http://host.docker.internal:9090/api/v1/query' \
+                          --data-urlencode 'query=up{job="enrollment-service"}' \
+                          | grep -q '"1"'
+                    '''
+                }
+            }
+        }
+
+        // Add a vertical build marker to Grafana dashboards.
+        stage('Grafana Annotation') {
+            steps {
+                catchError(
+                    buildResult: 'SUCCESS',
+                    stageResult: 'UNSTABLE'
+                ) {
+                    withCredentials([
+                        string(
+                            credentialsId: 'grafana-token',
+                            variable: 'GRAFANA_TOKEN'
+                        )
+                    ]) {
+                        sh '''
+                            set +x
+                            trap 'rm -f annotation.json' EXIT
+
+                            printf '{"text":"enrollment-service build #%s","tags":["jenkins","enrollment-service"]}\\n' \
+                              "$BUILD_NUMBER" > annotation.json
+
+                            curl -fsS \
+                              -X POST 'http://host.docker.internal:3001/api/annotations' \
+                              -H "Authorization: Bearer $GRAFANA_TOKEN" \
+                              -H 'Content-Type: application/json' \
+                              -d @annotation.json
+                        '''
+                    }
                 }
             }
         }
