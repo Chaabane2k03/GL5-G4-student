@@ -31,28 +31,6 @@ pipeline {
             }
         }
 
-        stage('Load CI Configuration') {
-            steps {
-                script {
-                    readFile('student-service/ci.env').readLines().each { line ->
-                        def entry = line.trim()
-                        if (!entry || entry.startsWith('#') || !entry.contains('=')) {
-                            return
-                        }
-                        def separator = entry.indexOf('=')
-                        def key = entry.substring(0, separator).trim()
-                        def value = entry.substring(separator + 1).trim()
-                        if (value.size() >= 2 &&
-                            ((value.startsWith('"') && value.endsWith('"')) ||
-                             (value.startsWith("'") && value.endsWith("'")))) {
-                            value = value.substring(1, value.size() - 1)
-                        }
-                        env[key] = value
-                    }
-                }
-            }
-        }
-
         // Build and test ONCE: the jar produced here is reused by Docker and Nexus.
         stage('Build & Test') {
             steps {
@@ -75,7 +53,7 @@ pipeline {
             parallel {
                 stage('SonarQube Analysis') {
                     steps {
-                        withSonarQubeEnv(env.SONAR_ENV_NAME) {
+                        withSonarQubeEnv('SonarQube') {
                             dir('student-service') {
                                 sh '''
                                     [ -f ci.env ] && set -a && . ./ci.env && set +a
@@ -122,9 +100,8 @@ pipeline {
                                         exit 1
                                     fi
 
-                                    mvn -B package -DskipTests
-                                    if ! compgen -G 'target/*.jar' >/dev/null; then
-                                        echo "ERROR: Maven did not produce a JAR in target/; cannot build the Docker image." >&2
+                                    if ! ls target/*.jar 2>/dev/null | grep -q .; then
+                                        echo "ERROR: No JAR found in target/ — skipping Docker build." >&2
                                         exit 1
                                     fi
 
@@ -151,7 +128,7 @@ pipeline {
             steps {
                 withCredentials([
                     usernamePassword(
-                        credentialsId: env.NEXUS_CREDS_ID,
+                        credentialsId: 'nexus',
                         usernameVariable: 'NEXUS_USER',
                         passwordVariable: 'NEXUS_PASS'
                     )
@@ -254,7 +231,7 @@ EOF
                             [ -f .env ] && set -a && . ./.env && set +a
 
                             P_URL="${PROMETHEUS_URL:-http://host.docker.internal:9090}"
-                            P_QUERY="${PROMETHEUS_METRIC_QUERY:-up{job=\"student-service\"}}"
+                            P_QUERY="up{job=\"student-service\"}"
 
                             curl -fsS --get "${P_URL}/api/v1/query" \
                               --data-urlencode "query=${P_QUERY}" | grep -q '"1"'
@@ -273,7 +250,7 @@ EOF
                 ) {
                     withCredentials([
                         string(
-                            credentialsId: env.GRAFANA_CREDS_ID,
+                            credentialsId: 'grafana-token',
                             variable: 'GRAFANA_TOKEN'
                         )
                     ]) {
@@ -313,7 +290,7 @@ EOF
         }
         always {
             emailext(
-                to: 'jdidiabderrahmen1@gmail.com',
+                to: 'chaabaneboussadia@gmail.com',
                 subject: "${env.JOB_NAME} - Build #${env.BUILD_NUMBER} - ${currentBuild.currentResult}",
                 mimeType: 'text/html',
                 body: """
