@@ -1,3 +1,6 @@
+// Must stay the first side-effect import: keycloak-js needs crypto.randomUUID()
+// before the first navigation runs the auth guard (see the module comment).
+import './app/core/auth/insecure-context-crypto';
 import { registerLocaleData } from '@angular/common';
 import localeFr from '@angular/common/locales/fr';
 import { bootstrapApplication } from '@angular/platform-browser';

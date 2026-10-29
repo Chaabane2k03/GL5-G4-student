@@ -32,12 +32,14 @@ spec:
             - start
             - --import-realm
           env:
-            - name: KEYCLOAK_ADMIN
+            # Keycloak 26 replaced KEYCLOAK_ADMIN / KEYCLOAK_ADMIN_PASSWORD by
+            # the KC_BOOTSTRAP_ADMIN_* options (the old names are ignored).
+            - name: KC_BOOTSTRAP_ADMIN_USERNAME
               valueFrom:
                 secretKeyRef:
                   name: {{ include "keycloak.secretName" . }}
                   key: admin-user
-            - name: KEYCLOAK_ADMIN_PASSWORD
+            - name: KC_BOOTSTRAP_ADMIN_PASSWORD
               valueFrom:
                 secretKeyRef:
                   name: {{ include "keycloak.secretName" . }}
@@ -54,11 +56,17 @@ spec:
               value: "true"
             # The hostname Keycloak publishes in the `iss` claim. It has to be
             # the issuer the API Gateway is configured with, otherwise the
-            # tokens are rejected.
+            # tokens are rejected. The path (/auth) is the public context path:
+            # the frontend Nginx strips it before forwarding to Keycloak, which
+            # is Keycloak's supported "hostname includes the proxy context
+            # path" reverse-proxy setup.
             - name: KC_HOSTNAME
               value: {{ .Values.hostname | quote }}
-            - name: KC_HOSTNAME_STRICT
-              value: "false"
+            # Accept X-Forwarded-* from the frontend Nginx (real client IP,
+            # scheme and host). The deprecated hostname/hostname-strict options
+            # of Keycloak 25 no longer exist in 26, so they must not be set.
+            - name: KC_PROXY_HEADERS
+              value: "xforwarded"
             - name: JAVA_OPTS
               value: {{ .Values.javaOpts | quote }}
           ports:

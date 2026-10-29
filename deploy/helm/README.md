@@ -259,10 +259,15 @@ helm upgrade --install gl5-student ./deploy/helm/umbrella/gl5-student \
 
 **Points importants EKS :**
 - Remplacer tous les placeholders `<...>` dans `values/eks/gl5-student.yaml` (account ID, région, domaine, RDS endpoints, ARN ACM, VPC CIDR, IRSA role)
+- Renseigner obligatoirement l'issuer public de Keycloak, sinon le navigateur est redirigé vers `keycloak:8080` :
+  `--set keycloak.hostname=http://<dns-de-l-alb>/auth` (le frontend relaie `/auth` vers le Service Keycloak)
+- En HTTP seul, garder `frontend.runtime.pkceMethod: false` : l'application bascule alors sur le flux implicite, que le client `cursus-frontend` doit autoriser (`implicitFlowEnabled`) ; Web Crypto n'existe pas hors contexte sécurisé
 - Les bases MySQL StatefulSets sont désactivées (`enabled: false`), remplacées par des Services `ExternalName` vers RDS
 - Les Secrets sont créés par External Secrets Operator depuis AWS Secrets Manager
 - Pas de `imagePullSecrets` nécessaire (node role IAM)
 - Ingress via AWS Load Balancer Controller (classe `alb`)
+
+> Le chemin recommandé pour le lab AWS Academy est `deploy/terraform/README.md` : Terraform crée l'infrastructure, pousse les valeurs ci-dessus dans Helm et gère la mise à jour en deux temps de l'issuer public.
 
 ## Mise à jour et Rollback
 

@@ -49,10 +49,17 @@ provider "helm" {
 }
 
 # The umbrella chart uses file:// dependencies that must be packaged before
-# the release. Rebuild them whenever any chart file changes.
+# the release. Hash every chart source file (not only Chart.yaml) so a change
+# to a template/realm also repackages the dependencies. Generated archives and
+# Chart.lock are excluded, otherwise `helm dependency update` would retrigger
+# itself forever.
 resource "null_resource" "helm_deps" {
   triggers = {
-    chart_hash = filesha256("${path.module}/../helm/umbrella/gl5-student/Chart.yaml")
+    chart_hash = sha256(join("", [
+      for f in fileset("${path.module}/../helm", "**") :
+      filesha256("${path.module}/../helm/${f}")
+      if !can(regex("\\.tgz$", f)) && f != "umbrella/gl5-student/Chart.lock"
+    ]))
   }
 
   provisioner "local-exec" {
@@ -70,8 +77,10 @@ resource "helm_release" "aws_lb_controller" {
   repository = "https://aws.github.io/eks-charts"
   chart      = "aws-load-balancer-controller"
   namespace  = "kube-system"
-  version    = "1.13.2"
-  timeout    = 900
+  # Chart 3.x is the current line and supports the EKS versions that are still
+  # in standard support (the previous 1.x chart predates them).
+  version = "3.6.2"
+  timeout = 900
 
   set = [
     { name = "clusterName", value = aws_eks_cluster.gl5.name },
@@ -80,6 +89,9 @@ resource "helm_release" "aws_lb_controller" {
     # The lab does not use IRSA. Host networking lets the controller reach
     # the node instance-role credentials through EC2 instance metadata.
     { name = "hostNetwork", value = "true" },
+    # Required with hostNetwork, otherwise the webhook pods cannot resolve the
+    # Kubernetes API through the cluster DNS.
+    { name = "dnsPolicy", value = "ClusterFirstWithHostNet" },
     # Shield and WAF are optional ALB integrations and are not permitted by
     # the lab role.
     { name = "enableShield", value = "false" },
@@ -98,9 +110,10 @@ resource "helm_release" "aws_lb_controller" {
 }
 
 # --- The application (gl5-student umbrella chart) ---------------------------
-# Values are merged in order, later ones win: first the lab overrides built
-# below, then the repo's eks values file (which still references un-filled
-# placeholders, but every placeholder-bearing key is overridden here).
+# The release uses one self-contained values document (local.app_values).
+# The repo's values/eks/gl5-student.yaml is intentionally NOT merged: it is a
+# template full of <...> placeholders that would leak into the rendered
+# resources (Helm deep-merges maps key-by-key).
 resource "helm_release" "gl5_student" {
   name             = "gl5-student"
   chart            = "${path.module}/../helm/umbrella/gl5-student"
@@ -133,6 +146,13 @@ resource "helm_release" "gl5_student" {
 locals {
   rds_endpoint = aws_db_instance.gl5.address
 
+  # Keycloak is reached by the browser through the frontend's /auth relay, so
+  # its published issuer must be the public URL, not the in-cluster Service.
+  # On the first apply (public_hostname = "") the internal URL keeps Keycloak
+  # and the gateway consistent; the second apply switches both to the ALB.
+  public_base_url = var.public_hostname == "" ? "http://keycloak:8080" : "${var.public_scheme}://${var.public_hostname}/auth"
+  keycloak_issuer = "${local.public_base_url}/realms/gl5"
+
   app_values = {
     # --- Images from ECR (push after `terraform apply` on the infra part)
     imageRegistry = local.ecr_domain
@@ -145,8 +165,15 @@ locals {
     # the chart to create per-service secrets from the secretData below
     # (values/eks/gl5-student.yaml says create=false for the ESO flow).
     api-gateway = {
-      image      = { repository = "${local.ecr_domain}/gl5-g4-api-gateway", tag = var.image_tag }
-      secret     = { create = true, existing = "" }
+      image  = { repository = "${local.ecr_domain}/gl5-g4-api-gateway", tag = var.image_tag }
+      secret = { create = true, existing = "" }
+      env = {
+        # The browser gets tokens from the public /auth URL; the gateway
+        # validates that issuer. JWKS stays on the internal Service because
+        # the pod egress NetworkPolicy does not allow the public ALB.
+        KEYCLOAK_ISSUER_URI = local.keycloak_issuer
+        JWK_SET_URI         = "http://keycloak:8080/realms/gl5/protocol/openid-connect/certs"
+      }
       secretData = {}
     }
     student-service = {
@@ -195,13 +222,29 @@ locals {
     }
     keycloak = {
       image = { repository = "quay.io/keycloak/keycloak", tag = "26.0" }
+      # Must match the API Gateway issuer and the URL the browser reaches via
+      # the frontend /auth relay.
+      hostname = local.public_base_url
       # Same ephemeral database strategy as Minikube: realm is re-imported
       # on restart, good for the demo. RDS-backed Keycloak DB is the next step.
       db          = { vendor = "dev-file" }
       persistence = { enabled = false }
     }
     frontend = {
-      image = { repository = "nginx", tag = "1.27-alpine" }
+      # The real Angular application, built by `docker compose build
+      # frontend-service`. A stock nginx image has no /api and /auth proxy
+      # configuration and fails the /health probe.
+      image = { repository = "${local.ecr_domain}/gl5-g4-frontend-service", tag = var.image_tag }
+
+      runtime = {
+        # The lab exposes the ALB over plain HTTP (no domain to validate an
+        # ACM certificate). Web Crypto is unavailable on a non-secure origin,
+        # so the Angular app selects the implicit flow when pkceMethod is
+        # false (see AuthService.init). The realm client therefore enables
+        # implicitFlowEnabled and does not require PKCE. Restore S256 + the
+        # client attribute once the ALB is behind HTTPS.
+        pkceMethod = false
+      }
 
       # Lab-friendly ALB: internet-facing, HTTP only (no ACM cert without a
       # DNS domain we can validate in the lab). NOTE: Helm deep-merges maps,
@@ -253,9 +296,14 @@ locals {
     # (no ACM cert without a DNS domain we can validate in the lab). Hit
     # the ALB hostname directly, or point Route 53 at it later.
     networkPolicy = {
-      enabled                = true
+      enabled = true
+      # The ALB uses target-type=ip, so requests reach the frontend pods with
+      # the *client* source address (AWS preserves it). Restricting this to
+      # the VPC CIDR would let the ALB health check pass while blocking every
+      # real visitor. The ALB security group is the perimeter in this lab;
+      # narrow this to CloudFront/office ranges for a production deployment.
       ingressNamespace       = ""
-      ingressCidrBlocks      = [var.vpc_cidr]
+      ingressCidrBlocks      = ["0.0.0.0/0"]
       databaseCidrBlocks     = [var.vpc_cidr]
       observabilityNamespace = "observability"
     }

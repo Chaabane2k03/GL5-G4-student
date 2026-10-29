@@ -56,7 +56,15 @@ export class AuthService {
       });
 
       const initOptions: KeycloakInitOptions = {
-        flow: kcConfig.pkceMethod === false ? 'implicit' : 'standard',
+        // Authorization Code flow, always. Over plain HTTP the browser exposes
+        // neither crypto.subtle (PKCE S256) nor — before the shim — randomUUID,
+        // so PKCE is disabled there. Code flow without PKCE is still the right
+        // choice: unlike implicit, Keycloak returns a *refresh token*, which is
+        // what lets keycloak-js renew the access token silently every few
+        // minutes. Implicit flow never issues one, so `updateToken()` threw
+        // "no refresh token available" on the first API call and the shell
+        // showed the "Session administrative expirée" dialog right after login.
+        flow: 'standard',
         checkLoginIframe: false,
         enableLogging: false,
         pkceMethod: kcConfig.pkceMethod === false ? false : 'S256',
@@ -138,6 +146,19 @@ export class AuthService {
       return null;
     }
     try {
+      // Defensive: with implicit flow Keycloak issues no refresh token, and
+      // keycloak-js then rejects *every* updateToken() call — even while the
+      // access token is still valid. The auth interceptor calls this on each
+      // API request, so that rejection used to open the "Session
+      // administrative expirée" dialog as soon as the dashboard loaded. Keep
+      // the current token while it is usable and only report a real expiry.
+      if (!this.keycloakInstance.refreshToken) {
+        if (!this.keycloakInstance.isTokenExpired(minValidity)) {
+          return this.keycloakInstance.token ?? null;
+        }
+        throw new Error('Aucun jeton de rafraîchissement disponible');
+      }
+
       const refreshed = await this.keycloakInstance.updateToken(minValidity);
       if (refreshed) {
         this.token.set(this.keycloakInstance.token || null);

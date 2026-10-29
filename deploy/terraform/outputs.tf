@@ -34,13 +34,17 @@ output "ecr_urls" {
   })
 }
 
-output "helm_command" {
-  description = "Alternative deployment path: plain Helm instead of helm_release"
-  value       = <<-EOT
-    helm upgrade --install gl5-student ../helm/umbrella/gl5-student \
-      -n gl5-student --create-namespace \
-      --set rds.enabled=true --set rds.databases[0].name=student-db \
-      --set rds.databases[0].endpoint=${aws_db_instance.gl5.address} \
-      --wait --timeout 15m
-  EOT
+output "alb_hostname_command" {
+  description = "Read the ALB DNS name after the Ingress is reconciled"
+  value       = "kubectl -n gl5-student get ingress frontend -o jsonpath='{.status.loadBalancer.ingress[0].hostname}'"
+}
+
+output "phase2_command" {
+  description = "Run this once the ALB hostname is known: it switches Keycloak and the gateway to the public issuer"
+  value       = "terraform apply -var=\"public_hostname=<alb-dns-name>\""
+}
+
+output "app_url" {
+  description = "Public URL once public_hostname is set"
+  value       = var.public_hostname == "" ? "(not set yet — see phase2_command)" : "${var.public_scheme}://${var.public_hostname}/"
 }
