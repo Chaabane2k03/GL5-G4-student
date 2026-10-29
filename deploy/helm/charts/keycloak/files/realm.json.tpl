@@ -52,11 +52,11 @@
       "publicClient": true,
       "directAccessGrantsEnabled": false,
       "standardFlowEnabled": true,
+      "implicitFlowEnabled": false,
       "serviceAccountsEnabled": false,
       "redirectUris": ["*"],
       "webOrigins": ["*"],
       "attributes": {
-        "pkce.code.challenge.method": "S256",
         "post.logout.redirect.uris": "*"
       },
       "protocolMappers": [

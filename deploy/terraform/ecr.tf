@@ -7,15 +7,15 @@
 # ---------------------------------------------------------------------------
 
 resource "aws_ecr_repository" "app" {
-  # NOTE: individual repos; adjust names to the umbrella image keys
+  # One repository per locally built image. Keycloak is pulled from quay.io
+  # directly by the chart, so it does not need an ECR mirror in the lab.
   for_each = toset([
     "gl5-g4-api-gateway",
     "gl5-g4-student-service",
     "gl5-g4-course-service",
     "gl5-g4-department-service",
     "gl5-g4-enrollment-service",
-    "gl5-g4-keycloak",
-    "gl5-g4-frontend",
+    "gl5-g4-frontend-service",
   ])
 
   name                 = each.key

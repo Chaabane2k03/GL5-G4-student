@@ -54,6 +54,12 @@ variable "storage_class" {
   default     = "gp2"
 }
 
+variable "enable_observability" {
+  description = "Install kube-prometheus-stack (Prometheus + Grafana) and scrape the application Actuator endpoints."
+  type        = bool
+  default     = true
+}
+
 variable "db_instance_class" {
   description = "RDS size (labs: nano/small/medium allowed)"
   type        = string
@@ -88,8 +94,39 @@ variable "image_tag" {
   type        = string
   default     = "latest"
 }
+
 variable "kubernetes_version" {
-  description = "EKS Kubernetes version"
+  description = "EKS Kubernetes version. Keep it on a version still in standard support: extended support adds $0.60/h to the control plane."
   type        = string
-  default     = "1.31"
+  default     = "1.36"
+}
+
+# ---------------------------------------------------------------------------
+# Public entry point.
+#
+# The ALB hostname only exists after the frontend Ingress has been created by
+# Helm, so this value cannot be known on the first apply. Leave it empty for
+# the first `terraform apply`, read the ALB hostname, then apply again:
+#
+#   terraform apply -var="public_hostname=<alb-dns-name>"
+#
+# Keycloak publishes this URL as the OIDC issuer and the API Gateway validates
+# the same issuer. Without it, login redirects point at the in-cluster
+# `keycloak:8080` Service, which a browser cannot resolve.
+# ---------------------------------------------------------------------------
+variable "public_hostname" {
+  description = "Public hostname (usually the ALB DNS name) that serves the frontend. Empty during the first apply."
+  type        = string
+  default     = ""
+}
+
+variable "public_scheme" {
+  description = "http for the ALB DNS name (no ACM certificate); https when public_hostname is a real domain behind an HTTPS listener."
+  type        = string
+  default     = "http"
+
+  validation {
+    condition     = contains(["http", "https"], var.public_scheme)
+    error_message = "public_scheme must be http or https."
+  }
 }
