@@ -71,7 +71,7 @@ Wait until SonarQube is ready:
 Invoke-WebRequest http://localhost:9000/api/system/status
 ```
 
-The response should contain a status of `UP`. Create a SonarQube user token in
+The response should contain a status of `UP`. Create a SonarQube user token !!! squ..... !!! in
 **My Account → Security**, then put it in `jenkins-nexus-docker/.env` as
 `SONAR_TOKEN`.
 
