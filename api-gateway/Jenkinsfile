@@ -219,7 +219,7 @@ EOF
                                 TARGET_VERSION="${OVERRIDE_VERSION}"
                                 echo "Using manual override version: ${TARGET_VERSION}"
                             else
-                                CURRENT_POM_VERSION=$(mvn -B help:evaluate -Dexpression=project.version -q -DforceStdout 2>/dev/null | grep -v '\[' | tail -n 1)
+                                CURRENT_POM_VERSION=$(mvn -B help:evaluate -Dexpression=project.version -q -DforceStdout 2>/dev/null | grep -F -v "[" | tail -n 1)
                                 BASE_VERSION=$(echo "${CURRENT_POM_VERSION}" | sed -E 's/-SNAPSHOT$//')
                                 VERSION_ROOT="${VERSION_PREFIX:-$BASE_VERSION}"
 
