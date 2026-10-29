@@ -1,6 +1,8 @@
-target/
 .git
+.m2
 .env
+**/target/*
+!target/*.jar
 Dockerfile.jenkins
 docker-compose*.yml
 jenkins/

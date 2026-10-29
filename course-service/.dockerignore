@@ -1,13 +1,10 @@
-target/
-.git/
-.gitignore
-.idea/
-*.iml
-*.md
+.git
+.m2
 .env
-*.log
-Dockerfile
+target/classes
+target/test-classes
+target/surefire-reports
+!target/*.jar
 Dockerfile.jenkins
 docker-compose*.yml
-# Jenkins Configuration-as-Code is not part of the application image.
 jenkins/

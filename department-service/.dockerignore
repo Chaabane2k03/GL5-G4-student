@@ -2,7 +2,7 @@
 .m2
 .env
 **/target/*
-!department-service/target/department-service.jar
+!target/*.jar
 Dockerfile.jenkins
 docker-compose*.yml
 jenkins/
