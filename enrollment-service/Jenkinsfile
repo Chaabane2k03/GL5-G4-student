@@ -25,81 +25,22 @@ pipeline {
     }
 
     environment {
-        // Service Identity & Paths
-        SERVICE_NAME             = 'enrollment-service'
-        SERVICE_DIR              = 'enrollment-service'
-        SERVICE_PORT             = '8083'
-        DOCKER_IMAGE_NAME        = 'gl5-g4-enrollment-service'
-        TEST_RESULTS_PATTERN     = 'target/surefire-reports/TEST-*.xml'
+        SERVICE_NAME         = 'enrollment-service'
+        SERVICE_DIR          = 'enrollment-service'
+        SERVICE_PORT         = '8083'
+        DOCKER_IMAGE_NAME    = 'gl5-g4-enrollment-service'
+        TEST_RESULTS_PATTERN = 'target/surefire-reports/TEST-*.xml'
 
-        // Defaults (overridden automatically by enrollment-service/ci.env or .env)
-        RELEASE_BRANCH           = 'main'
-        VERSION_PREFIX           = '1.0'
-        ENABLE_DOCKER_BUILD      = 'true'
-
-        SONAR_ENV_NAME           = 'SonarQube'
-        SONAR_PROJECT_KEY        = 'enrollment-service'
-        SONAR_PROJECT_NAME       = 'Enrollment Service'
-
-        NEXUS_CREDS_ID           = 'nexus-creds'
-        NEXUS_BASE_URL           = 'http://host.docker.internal:8081'
-        NEXUS_RELEASE_REPO_NAME  = 'gl5-student-releases'
-        NEXUS_SNAPSHOT_REPO_NAME = 'gl5-student-snapshots'
-        NEXUS_RELEASE_REPO_ID    = 'nexus-releases'
-        NEXUS_SNAPSHOT_REPO_ID   = 'nexus-snapshots'
-        NEXUS_RELEASE_REPO_URL   = "${env.NEXUS_BASE_URL}/repository/${env.NEXUS_RELEASE_REPO_NAME}/"
-        NEXUS_SNAPSHOT_REPO_URL  = "${env.NEXUS_BASE_URL}/repository/${env.NEXUS_SNAPSHOT_REPO_NAME}/"
-
-        PROMETHEUS_URL           = 'http://host.docker.internal:9090'
-        PROMETHEUS_METRIC_QUERY  = "up{job=\"${env.SERVICE_NAME}\"}"
-
-        GRAFANA_URL              = 'http://host.docker.internal:3001'
-        GRAFANA_CREDS_ID         = 'grafana-token'
-
-        NOTIFICATION_EMAIL       = 'jdidiabderrahmen1@gmail.com'
+        SONAR_ENV_NAME       = 'SonarQube'
+        NEXUS_CREDS_ID       = 'nexus-creds'
+        GRAFANA_CREDS_ID     = 'grafana-token'
+        NOTIFICATION_EMAIL   = 'jdidiabderrahmen1@gmail.com'
     }
 
     stages {
         stage('Checkout') {
             steps {
                 checkout scm
-            }
-        }
-
-        // Import environment configuration from file (ci.env or local .env)
-        stage('Load Environment Configuration') {
-            steps {
-                script {
-                    def loadEnvFile = { String filePath ->
-                        if (fileExists(filePath)) {
-                            echo "==> Loading configuration from ${filePath}"
-                            def content = readFile(filePath)
-                            content.split('\n').each { line ->
-                                line = line.trim()
-                                if (line && !line.startsWith('#') && line.contains('=')) {
-                                    def parts = line.split('=', 2)
-                                    def k = parts[0].trim()
-                                    def v = parts[1].trim()
-                                    if ((v.startsWith('"') && v.endsWith('"')) || (v.startsWith("'") && v.endsWith("'"))) {
-                                        v = v.substring(1, v.length() - 1)
-                                    }
-                                    env[k] = v
-                                }
-                            }
-                        }
-                    }
-
-                    // 1. Load service ci.env (committed in repo)
-                    loadEnvFile("${env.SERVICE_DIR}/ci.env")
-                    // 2. Load optional uncommitted local overrides (.env or .env.local) if present
-                    loadEnvFile("${env.SERVICE_DIR}/.env.local")
-                    loadEnvFile("${env.SERVICE_DIR}/.env")
-
-                    // Recompute derived URLs based on loaded variables
-                    env.NEXUS_RELEASE_REPO_URL  = "${env.NEXUS_BASE_URL}/repository/${env.NEXUS_RELEASE_REPO_NAME}/"
-                    env.NEXUS_SNAPSHOT_REPO_URL = "${env.NEXUS_BASE_URL}/repository/${env.NEXUS_SNAPSHOT_REPO_NAME}/"
-                    env.PROMETHEUS_METRIC_QUERY = "up{job=\"${env.SERVICE_NAME}\"}"
-                }
             }
         }
 
@@ -127,11 +68,18 @@ pipeline {
                     steps {
                         withSonarQubeEnv(env.SONAR_ENV_NAME) {
                             dir(env.SERVICE_DIR) {
-                                sh """
+                                sh '''
+                                    [ -f ci.env ] && set -a && . ./ci.env && set +a
+                                    [ -f .env.local ] && set -a && . ./.env.local && set +a
+                                    [ -f .env ] && set -a && . ./.env && set +a
+
+                                    PKEY="${SONAR_PROJECT_KEY:-${SERVICE_NAME}}"
+                                    PNAME="${SONAR_PROJECT_NAME:-${SERVICE_NAME}}"
+
                                     mvn -B org.sonarsource.scanner.maven:sonar-maven-plugin:sonar \
-                                      -Dsonar.projectKey=${env.SONAR_PROJECT_KEY} \
-                                      -Dsonar.projectName="${env.SONAR_PROJECT_NAME}"
-                                """
+                                      -Dsonar.projectKey="${PKEY}" \
+                                      -Dsonar.projectName="${PNAME}"
+                                '''
                             }
                         }
                     }
@@ -139,14 +87,19 @@ pipeline {
 
                 // Uses the pre-built jar from Build & Test via Dockerfile.ci for fast packaging
                 stage('Docker Build') {
-                    when {
-                        expression { env.ENABLE_DOCKER_BUILD != 'false' }
-                    }
                     steps {
                         catchError(buildResult: 'SUCCESS', stageResult: 'UNSTABLE') {
                             dir(env.SERVICE_DIR) {
                                 sh '''
-                                    # Verify Docker socket permissions before attempting build
+                                    [ -f ci.env ] && set -a && . ./ci.env && set +a
+                                    [ -f .env.local ] && set -a && . ./.env.local && set +a
+                                    [ -f .env ] && set -a && . ./.env && set +a
+
+                                    if [ "${ENABLE_DOCKER_BUILD:-true}" = "false" ]; then
+                                        echo "ENABLE_DOCKER_BUILD is false; skipping Docker packaging."
+                                        exit 0
+                                    fi
+
                                     if ! docker info >/dev/null 2>&1; then
                                         echo "=================================================================="
                                         echo "WARNING: Cannot connect to Docker daemon at unix:///var/run/docker.sock"
@@ -155,21 +108,22 @@ pipeline {
                                         echo "Quick fix on host:   sudo chmod 666 /var/run/docker.sock"
                                         echo "Permanent fix:       sudo usermod -aG docker jenkins && sudo systemctl restart jenkins"
                                         echo ""
-                                        echo "Skipping Docker image packaging for this stage without failing the build."
+                                        echo "Skipping Docker image packaging without failing the build."
                                         echo "=================================================================="
                                         exit 1
                                     fi
 
+                                    IMG_NAME="${DOCKER_IMAGE_NAME:-${SERVICE_NAME}}"
                                     if [ -f Dockerfile.ci ]; then
                                         docker build -f Dockerfile.ci \
-                                          -t "${DOCKER_IMAGE_NAME}:${BUILD_NUMBER}" \
-                                          -t "${DOCKER_IMAGE_NAME}:latest" .
-                                else
-                                    docker build \
-                                      -t "${DOCKER_IMAGE_NAME}:${BUILD_NUMBER}" \
-                                      -t "${DOCKER_IMAGE_NAME}:latest" .
-                                fi
-                            '''
+                                          -t "${IMG_NAME}:${BUILD_NUMBER}" \
+                                          -t "${IMG_NAME}:latest" .
+                                    else
+                                        docker build \
+                                          -t "${IMG_NAME}:${BUILD_NUMBER}" \
+                                          -t "${IMG_NAME}:latest" .
+                                    fi
+                                '''
                             }
                         }
                     }
@@ -192,16 +146,30 @@ pipeline {
                             set +x
                             trap 'rm -f settings.xml' EXIT
 
+                            [ -f ci.env ] && set -a && . ./ci.env && set +a
+                            [ -f .env.local ] && set -a && . ./.env.local && set +a
+                            [ -f .env ] && set -a && . ./.env && set +a
+
+                            NEXUS_BASE="${NEXUS_BASE_URL:-http://host.docker.internal:8081}"
+                            RELEASE_REPO="${NEXUS_RELEASE_REPO_NAME:-gl5-student-releases}"
+                            SNAPSHOT_REPO="${NEXUS_SNAPSHOT_REPO_NAME:-gl5-student-snapshots}"
+                            RELEASE_ID="${NEXUS_RELEASE_REPO_ID:-nexus-releases}"
+                            SNAPSHOT_ID="${NEXUS_SNAPSHOT_REPO_ID:-nexus-snapshots}"
+                            TARGET_RELEASE_BRANCH="${RELEASE_BRANCH:-main}"
+
+                            RELEASE_URL="${NEXUS_BASE}/repository/${RELEASE_REPO}/"
+                            SNAPSHOT_URL="${NEXUS_BASE}/repository/${SNAPSHOT_REPO}/"
+
                             cat > settings.xml <<EOF
 <settings>
   <servers>
     <server>
-      <id>${NEXUS_SNAPSHOT_REPO_ID}</id>
+      <id>${SNAPSHOT_ID}</id>
       <username>${NEXUS_USER}</username>
       <password>${NEXUS_PASS}</password>
     </server>
     <server>
-      <id>${NEXUS_RELEASE_REPO_ID}</id>
+      <id>${RELEASE_ID}</id>
       <username>${NEXUS_USER}</username>
       <password>${NEXUS_PASS}</password>
     </server>
@@ -209,12 +177,10 @@ pipeline {
 </settings>
 EOF
 
-                            # Detect branch
                             GIT_BRANCH_NAME="${BRANCH_NAME:-${GIT_BRANCH:-}}"
                             CURRENT_BRANCH=$(echo "${GIT_BRANCH_NAME}" | sed 's|^origin/||')
-                            echo "Detected branch: '${CURRENT_BRANCH}' (Configured release branch: '${RELEASE_BRANCH}')"
+                            echo "Detected branch: '${CURRENT_BRANCH}' (Configured release branch: '${TARGET_RELEASE_BRANCH}')"
 
-                            # Dynamic versioning calculation
                             if [ -n "${OVERRIDE_VERSION:-}" ]; then
                                 TARGET_VERSION="${OVERRIDE_VERSION}"
                                 echo "Using manual override version: ${TARGET_VERSION}"
@@ -223,37 +189,35 @@ EOF
                                 BASE_VERSION=$(echo "${CURRENT_POM_VERSION}" | sed -E 's/-SNAPSHOT$//')
                                 VERSION_ROOT="${VERSION_PREFIX:-$BASE_VERSION}"
 
-                                if [ "${CURRENT_BRANCH}" = "${RELEASE_BRANCH}" ] || [ "${FORCE_RELEASE}" = "true" ]; then
+                                if [ "${CURRENT_BRANCH}" = "${TARGET_RELEASE_BRANCH}" ] || [ "${FORCE_RELEASE}" = "true" ]; then
                                     TARGET_VERSION="${VERSION_ROOT}.${BUILD_NUMBER}"
                                 else
                                     TARGET_VERSION="${VERSION_ROOT}.${BUILD_NUMBER}-SNAPSHOT"
                                 fi
                             fi
 
-                            # Set the dynamic version in pom.xml
                             mvn -B versions:set \
                               -DnewVersion="${TARGET_VERSION}" \
                               -DgenerateBackupPoms=false
 
-                            # Deploy to Nexus based on target repository
-                            if [ "${CURRENT_BRANCH}" = "${RELEASE_BRANCH}" ] || [ "${FORCE_RELEASE}" = "true" ]; then
+                            if [ "${CURRENT_BRANCH}" = "${TARGET_RELEASE_BRANCH}" ] || [ "${FORCE_RELEASE}" = "true" ]; then
                                 echo "=========================================================="
-                                echo "Publishing RELEASE version ${TARGET_VERSION} to ${NEXUS_RELEASE_REPO_ID} (${NEXUS_RELEASE_REPO_URL})"
+                                echo "Publishing RELEASE version ${TARGET_VERSION} to ${RELEASE_ID} (${RELEASE_URL})"
                                 echo "=========================================================="
                                 mvn -B -s settings.xml deploy \
                                   -DskipTests \
-                                  -DaltReleaseDeploymentRepository="${NEXUS_RELEASE_REPO_ID}::default::${NEXUS_RELEASE_REPO_URL}"
-                                  -Dnexus.url="${NEXUS_BASE_URL}" \
-                                  -Dnexus.release.repo="${NEXUS_RELEASE_REPO_NAME}"
+                                  -DaltReleaseDeploymentRepository="${RELEASE_ID}::default::${RELEASE_URL}" \
+                                  -Dnexus.url="${NEXUS_BASE}" \
+                                  -Dnexus.release.repo="${RELEASE_REPO}"
                             else
                                 echo "=========================================================="
-                                echo "Publishing SNAPSHOT version ${TARGET_VERSION} to ${NEXUS_SNAPSHOT_REPO_ID} (${NEXUS_SNAPSHOT_REPO_URL})"
+                                echo "Publishing SNAPSHOT version ${TARGET_VERSION} to ${SNAPSHOT_ID} (${SNAPSHOT_URL})"
                                 echo "=========================================================="
                                 mvn -B -s settings.xml deploy \
                                   -DskipTests \
-                                  -DaltSnapshotDeploymentRepository="${NEXUS_SNAPSHOT_REPO_ID}::default::${NEXUS_SNAPSHOT_REPO_URL}"
-                                  -Dnexus.url="${NEXUS_BASE_URL}" \
-                                  -Dnexus.snapshot.repo="${NEXUS_SNAPSHOT_REPO_NAME}"
+                                  -DaltSnapshotDeploymentRepository="${SNAPSHOT_ID}::default::${SNAPSHOT_URL}" \
+                                  -Dnexus.url="${NEXUS_BASE}" \
+                                  -Dnexus.snapshot.repo="${SNAPSHOT_REPO}"
                             fi
                         '''
                     }
@@ -268,12 +232,19 @@ EOF
                     buildResult: 'SUCCESS',
                     stageResult: 'UNSTABLE'
                 ) {
-                    sh """
-                        curl -fsS --get \
-                          '${env.PROMETHEUS_URL}/api/v1/query' \
-                          --data-urlencode 'query=${env.PROMETHEUS_METRIC_QUERY}' \
-                          | grep -q '"1"'
-                    """
+                    dir(env.SERVICE_DIR) {
+                        sh '''
+                            [ -f ci.env ] && set -a && . ./ci.env && set +a
+                            [ -f .env.local ] && set -a && . ./.env.local && set +a
+                            [ -f .env ] && set -a && . ./.env && set +a
+
+                            P_URL="${PROMETHEUS_URL:-http://host.docker.internal:9090}"
+                            P_QUERY="${PROMETHEUS_METRIC_QUERY:-up{job=\"${SERVICE_NAME}\"}}"
+
+                            curl -fsS --get "${P_URL}/api/v1/query" \
+                              --data-urlencode "query=${P_QUERY}" | grep -q '"1"'
+                        '''
+                    }
                 }
             }
         }
@@ -291,19 +262,27 @@ EOF
                             variable: 'GRAFANA_TOKEN'
                         )
                     ]) {
-                        sh """
-                            set +x
-                            trap 'rm -f annotation.json' EXIT
+                        dir(env.SERVICE_DIR) {
+                            sh '''
+                                set +x
+                                trap 'rm -f annotation.json' EXIT
 
-                            printf '{"text":"%s build #%s","tags":["jenkins","%s"]}\\n' \
-                              "${env.SERVICE_NAME}" "${env.BUILD_NUMBER}" "${env.SERVICE_NAME}" > annotation.json
+                                [ -f ci.env ] && set -a && . ./ci.env && set +a
+                                [ -f .env.local ] && set -a && . ./.env.local && set +a
+                                [ -f .env ] && set -a && . ./.env && set +a
 
-                            curl -fsS \
-                              -X POST '${env.GRAFANA_URL}/api/annotations' \
-                              -H "Authorization: Bearer \$GRAFANA_TOKEN" \
-                              -H 'Content-Type: application/json' \
-                              -d @annotation.json
-                        """
+                                G_URL="${GRAFANA_URL:-http://host.docker.internal:3001}"
+
+                                printf '{"text":"%s build #%s","tags":["jenkins","%s"]}\n' \
+                                  "${SERVICE_NAME}" "${BUILD_NUMBER}" "${SERVICE_NAME}" > annotation.json
+
+                                curl -fsS \
+                                  -X POST "${G_URL}/api/annotations" \
+                                  -H "Authorization: Bearer ${GRAFANA_TOKEN}" \
+                                  -H 'Content-Type: application/json' \
+                                  -d @annotation.json
+                            '''
+                        }
                     }
                 }
             }
