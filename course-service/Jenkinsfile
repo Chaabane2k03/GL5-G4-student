@@ -217,68 +217,6 @@ EOF
             }
         }
 
-        // Mark the stage unstable if Prometheus cannot scrape the service
-        stage('Prometheus Check') {
-            steps {
-                catchError(
-                    buildResult: 'SUCCESS',
-                    stageResult: 'UNSTABLE'
-                ) {
-                    dir('course-service') {
-                        sh '''
-                            [ -f ci.env ] && set -a && . ./ci.env && set +a
-                            [ -f .env.local ] && set -a && . ./.env.local && set +a
-                            [ -f .env ] && set -a && . ./.env && set +a
-
-                            P_URL="${PROMETHEUS_URL:-http://host.docker.internal:9090}"
-                            P_QUERY="up{job=\"course-service\"}"
-
-                            curl -fsS --get "${P_URL}/api/v1/query" \
-                              --data-urlencode "query=${P_QUERY}" | grep -q '"1"'
-                        '''
-                    }
-                }
-            }
-        }
-
-        // Add build marker annotation to Grafana dashboards
-        stage('Grafana Annotation') {
-            steps {
-                catchError(
-                    buildResult: 'SUCCESS',
-                    stageResult: 'UNSTABLE'
-                ) {
-                    withCredentials([
-                        string(
-                            credentialsId: 'grafana-token',
-                            variable: 'GRAFANA_TOKEN'
-                        )
-                    ]) {
-                        dir('course-service') {
-                            sh '''
-                                set +x
-                                trap 'rm -f annotation.json' EXIT
-
-                                [ -f ci.env ] && set -a && . ./ci.env && set +a
-                                [ -f .env.local ] && set -a && . ./.env.local && set +a
-                                [ -f .env ] && set -a && . ./.env && set +a
-
-                                G_URL="${GRAFANA_URL:-http://host.docker.internal:3001}"
-
-                                printf '{"text":"%s build #%s","tags":["jenkins","%s"]}\n' \
-                                  "course-service" "${BUILD_NUMBER}" "course-service" > annotation.json
-
-                                curl -fsS \
-                                  -X POST "${G_URL}/api/annotations" \
-                                  -H "Authorization: Bearer ${GRAFANA_TOKEN}" \
-                                  -H 'Content-Type: application/json' \
-                                  -d @annotation.json
-                            '''
-                        }
-                    }
-                }
-            }
-        }
     }
 
     post {
