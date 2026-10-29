@@ -24,30 +24,35 @@ pipeline {
         )
     }
 
-    environment {
-        SERVICE_NAME         = 'course-service'
-        SERVICE_DIR          = 'course-service'
-        SERVICE_PORT         = '8084'
-        DOCKER_IMAGE_NAME    = 'gl5-g4-course-service'
-        TEST_RESULTS_PATTERN = 'target/surefire-reports/TEST-*.xml'
-
-        SONAR_ENV_NAME       = 'SonarQube'
-        NEXUS_CREDS_ID       = 'nexus-creds'
-        GRAFANA_CREDS_ID     = 'grafana-token'
-        NOTIFICATION_EMAIL   = 'jdidiabderrahmen1@gmail.com'
-    }
-
     stages {
         stage('Checkout') {
             steps {
                 checkout scm
+            }
+
+            stage('Load CI Configuration') {
+                steps {
+                    script {
+                        readFile('course-service/ci.env').readLines().each { line ->
+                            def entry = line.trim()
+                            if (!entry || entry.startsWith('#') || !entry.contains('=')) { return }
+                            def separator = entry.indexOf('=')
+                            def key = entry.substring(0, separator).trim()
+                            def value = entry.substring(separator + 1).trim()
+                            if (value.size() >= 2 && ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'")))) {
+                                value = value.substring(1, value.size() - 1)
+                            }
+                            env[key] = value
+                        }
+                    }
+                }
             }
         }
 
         // Build and test ONCE: the jar produced here is reused by Docker and Nexus.
         stage('Build & Test') {
             steps {
-                dir(env.SERVICE_DIR) {
+                dir('course-service') {
                     sh 'mvn -B clean verify'
                 }
             }
@@ -55,7 +60,7 @@ pipeline {
                 always {
                     junit(
                         allowEmptyResults: true,
-                        testResults: "${env.SERVICE_DIR}/${env.TEST_RESULTS_PATTERN}"
+                        testResults: 'course-service/target/surefire-reports/TEST-*.xml'
                     )
                 }
             }
@@ -67,14 +72,14 @@ pipeline {
                 stage('SonarQube Analysis') {
                     steps {
                         withSonarQubeEnv(env.SONAR_ENV_NAME) {
-                            dir(env.SERVICE_DIR) {
+                            dir('course-service') {
                                 sh '''
                                     [ -f ci.env ] && set -a && . ./ci.env && set +a
                                     [ -f .env.local ] && set -a && . ./.env.local && set +a
                                     [ -f .env ] && set -a && . ./.env && set +a
 
-                                    PKEY="${SONAR_PROJECT_KEY:-${SERVICE_NAME}}"
-                                    PNAME="${SONAR_PROJECT_NAME:-${SERVICE_NAME}}"
+                                    PKEY="${SONAR_PROJECT_KEY:-course-service}"
+                                    PNAME="${SONAR_PROJECT_NAME:-Course Service}"
 
                                     mvn -B org.sonarsource.scanner.maven:sonar-maven-plugin:sonar \
                                       -Dsonar.projectKey="${PKEY}" \
@@ -89,7 +94,7 @@ pipeline {
                 stage('Docker Build') {
                     steps {
                         catchError(buildResult: 'SUCCESS', stageResult: 'UNSTABLE') {
-                            dir(env.SERVICE_DIR) {
+                            dir('course-service') {
                                 sh '''
                                     [ -f ci.env ] && set -a && . ./ci.env && set +a
                                     [ -f .env.local ] && set -a && . ./.env.local && set +a
@@ -113,7 +118,9 @@ pipeline {
                                         exit 1
                                     fi
 
-                                    IMG_NAME="${DOCKER_IMAGE_NAME:-${SERVICE_NAME}}"
+                                    mvn -B package -DskipTests
+                                    if ! compgen -G 'target/*.jar' >/dev/null; then exit 1; fi
+                                    IMG_NAME="${DOCKER_IMAGE_NAME:-course-service}"
                                     if [ -f Dockerfile.ci ]; then
                                         docker build -f Dockerfile.ci \
                                           -t "${IMG_NAME}:${BUILD_NUMBER}" \
@@ -141,7 +148,7 @@ pipeline {
                         passwordVariable: 'NEXUS_PASS'
                     )
                 ]) {
-                    dir(env.SERVICE_DIR) {
+                    dir('course-service') {
                         sh '''
                             set +x
                             trap 'rm -f settings.xml' EXIT
@@ -232,14 +239,14 @@ EOF
                     buildResult: 'SUCCESS',
                     stageResult: 'UNSTABLE'
                 ) {
-                    dir(env.SERVICE_DIR) {
+                    dir('course-service') {
                         sh '''
                             [ -f ci.env ] && set -a && . ./ci.env && set +a
                             [ -f .env.local ] && set -a && . ./.env.local && set +a
                             [ -f .env ] && set -a && . ./.env && set +a
 
                             P_URL="${PROMETHEUS_URL:-http://host.docker.internal:9090}"
-                            P_QUERY="${PROMETHEUS_METRIC_QUERY:-up{job=\"${SERVICE_NAME}\"}}"
+                            P_QUERY="${PROMETHEUS_METRIC_QUERY:-up{job=\"course-service\"}}"
 
                             curl -fsS --get "${P_URL}/api/v1/query" \
                               --data-urlencode "query=${P_QUERY}" | grep -q '"1"'
@@ -262,7 +269,7 @@ EOF
                             variable: 'GRAFANA_TOKEN'
                         )
                     ]) {
-                        dir(env.SERVICE_DIR) {
+                        dir('course-service') {
                             sh '''
                                 set +x
                                 trap 'rm -f annotation.json' EXIT
@@ -274,7 +281,7 @@ EOF
                                 G_URL="${GRAFANA_URL:-http://host.docker.internal:3001}"
 
                                 printf '{"text":"%s build #%s","tags":["jenkins","%s"]}\n' \
-                                  "${SERVICE_NAME}" "${BUILD_NUMBER}" "${SERVICE_NAME}" > annotation.json
+                                  "course-service" "${BUILD_NUMBER}" "course-service" > annotation.json
 
                                 curl -fsS \
                                   -X POST "${G_URL}/api/annotations" \
@@ -291,19 +298,19 @@ EOF
 
     post {
         success {
-            echo "Pipeline for ${env.SERVICE_NAME} succeeded"
+            echo 'Pipeline for course-service succeeded'
         }
         failure {
-            echo "Pipeline for ${env.SERVICE_NAME} failed"
+            echo 'Pipeline for course-service failed'
         }
         always {
             emailext(
-                to: env.NOTIFICATION_EMAIL,
+                to: 'jdidiabderrahmen1@gmail.com',
                 subject: "${env.JOB_NAME} - Build #${env.BUILD_NUMBER} - ${currentBuild.currentResult}",
                 mimeType: 'text/html',
                 body: """
                     <h2>Jenkins Build Report</h2>
-                    <p><b>Service:</b> ${env.SERVICE_NAME}</p>
+                    <p><b>Service:</b> course-service</p>
                     <p><b>Job:</b> ${env.JOB_NAME}</p>
                     <p><b>Build Number:</b> ${env.BUILD_NUMBER}</p>
                     <p><b>Status:</b> ${currentBuild.currentResult}</p>
