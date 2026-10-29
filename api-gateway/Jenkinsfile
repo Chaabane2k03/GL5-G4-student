@@ -29,6 +29,24 @@ pipeline {
             steps {
                 checkout scm
             }
+
+            stage('Load CI Configuration') {
+                steps {
+                    script {
+                        readFile('api-gateway/ci.env').readLines().each { line ->
+                            def entry = line.trim()
+                            if (!entry || entry.startsWith('#') || !entry.contains('=')) { return }
+                            def separator = entry.indexOf('=')
+                            def key = entry.substring(0, separator).trim()
+                            def value = entry.substring(separator + 1).trim()
+                            if (value.size() >= 2 && ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'")))) {
+                                value = value.substring(1, value.size() - 1)
+                            }
+                            env[key] = value
+                        }
+                    }
+                }
+            }
         }
 
         // Build and test ONCE: the jar produced here is reused by Docker and Nexus.
@@ -53,7 +71,7 @@ pipeline {
             parallel {
                 stage('SonarQube Analysis') {
                     steps {
-                        withSonarQubeEnv('SonarQube') {
+                        withSonarQubeEnv(env.SONAR_ENV_NAME) {
                             dir('api-gateway') {
                                 sh '''
                                     [ -f ci.env ] && set -a && . ./ci.env && set +a
@@ -125,7 +143,7 @@ pipeline {
             steps {
                 withCredentials([
                     usernamePassword(
-                        credentialsId: 'nexus-creds',
+                        credentialsId: env.NEXUS_CREDS_ID,
                         usernameVariable: 'NEXUS_USER',
                         passwordVariable: 'NEXUS_PASS'
                     )
@@ -247,7 +265,7 @@ EOF
                 ) {
                     withCredentials([
                         string(
-                            credentialsId: 'grafana-token',
+                            credentialsId: env.GRAFANA_CREDS_ID,
                             variable: 'GRAFANA_TOKEN'
                         )
                     ]) {
