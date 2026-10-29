@@ -10,7 +10,6 @@ import java.util.List;
 /** Read endpoints only (GET). */
 @RestController
 @RequestMapping("/Enrollment")
-@CrossOrigin(origins = "http://localhost:4200")
 @RequiredArgsConstructor
 public class EnrollmentQueryController {
 

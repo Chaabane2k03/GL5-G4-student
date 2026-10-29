@@ -25,9 +25,6 @@ pipeline {
         }
 
         stage('Check environment') {
-            when {
-                branch 'feature/config-server'
-            }
             steps {
                 sh '''
                     set -eu
@@ -61,9 +58,6 @@ pipeline {
         }
 
         stage('Build and test') {
-            when {
-                branch 'feature/config-server'
-            }
             environment {
                 TESTCONTAINERS_HOST_OVERRIDE = 'host.docker.internal'
             }
@@ -85,9 +79,6 @@ pipeline {
         }
 
         stage('SonarQube analysis') {
-            when {
-                branch 'feature/config-server'
-            }
             steps {
                 withSonarQubeEnv('SonarQube') {
                     script {
@@ -99,9 +90,6 @@ pipeline {
         }
 
         stage('Quality gate') {
-            when {
-                branch 'feature/config-server'
-            }
             steps {
                 script {
                     timeout(time: 5, unit: 'MINUTES') {
@@ -144,7 +132,7 @@ pipeline {
                             <ul>
                                 <li><strong>Job:</strong> ${env.JOB_NAME}</li>
                                 <li><strong>Build:</strong> <a href="${env.BUILD_URL}">#${env.BUILD_NUMBER}</a></li>
-                                <li><strong>Branch:</strong> ${env.BRANCH_NAME ?: 'unknown'}</li>
+                                <li><strong>Branch:</strong> ${env.GIT_BRANCH ?: 'unknown'}</li>
                                 <li><strong>Commit:</strong> ${env.GIT_COMMIT ?: 'unknown'}</li>
                                 <li><strong>Build and tests:</strong> ${buildAndTestStatus}</li>
                                 <li><strong>Overall Jenkins result:</strong> ${currentBuild.currentResult}</li>

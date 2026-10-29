@@ -12,7 +12,7 @@ spec:
   template:
     metadata:
       annotations:
-        checksum/nginx: {{ include (print $.Template.BasePath "/configmap-nginx.yaml") . | sha256sum }}
+        checksum/runtime-config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
         {{- with .Values.podAnnotations }}
         {{- toYaml . | nindent 8 }}
         {{- end }}
@@ -32,28 +32,6 @@ spec:
         {{- toYaml . | nindent 8 }}
       {{- end }}
       terminationGracePeriodSeconds: {{ .Values.terminationGracePeriodSeconds }}
-      initContainers:
-        # Nginx resolves the API Gateway Service name when it starts. This
-        # container makes sure the name is already resolvable, otherwise Nginx
-        # would exit with "host not found in upstream" and restart in a loop.
-        - name: wait-for-api-gateway
-          image: busybox:1.36
-          command:
-            - sh
-            - -c
-            # The fully qualified name is used on purpose: busybox nslookup
-            # returns a non-zero exit code as soon as one of the search
-            # domains does not resolve, even when the name itself does.
-            - >-
-              until nslookup {{ .Values.gateway.service }}.{{ .Release.Namespace }}.svc.cluster.local. >/dev/null 2>&1;
-              do echo "waiting for {{ .Values.gateway.service }}"; sleep 2; done
-          resources:
-            requests:
-              cpu: 10m
-              memory: 16Mi
-            limits:
-              cpu: 100m
-              memory: 64Mi
       containers:
         - name: nginx
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
@@ -64,19 +42,19 @@ spec:
           {{- end }}
           ports:
             - name: http
-              containerPort: 80
+              containerPort: {{ .Values.containerPort }}
               protocol: TCP
           livenessProbe:
             httpGet:
-              path: /
+              path: /health
               port: http
-            initialDelaySeconds: 10
+            initialDelaySeconds: 5
             periodSeconds: 15
             timeoutSeconds: 3
             failureThreshold: 3
           readinessProbe:
             httpGet:
-              path: /
+              path: /health
               port: http
             initialDelaySeconds: 5
             periodSeconds: 10
@@ -94,26 +72,37 @@ spec:
             {{- toYaml . | nindent 12 }}
           {{- end }}
           volumeMounts:
-            - name: nginx-conf
-              mountPath: /etc/nginx/conf.d
+            - name: runtime-config
+              mountPath: /usr/share/nginx/html/config.json
+              subPath: config.json
               readOnly: true
             {{- if .Values.staticContent.enabled }}
             - name: static
               mountPath: /usr/share/nginx/html
               readOnly: true
             {{- end }}
-            # Nginx runs as an unprivileged user: the directories it writes to
-            # have to be writable by it.
             - name: nginx-cache
               mountPath: /var/cache/nginx
             - name: nginx-run
               mountPath: /var/run
             - name: nginx-tmp
               mountPath: /tmp
+          env:
+            # Helm mounts config.json read-only; envsubst must not overwrite it.
+            - name: NGINX_ENVSUBST_OUTPUT_DIR
+              value: /tmp
+            - name: API_BASE_URL
+              value: {{ .Values.runtime.apiBaseUrl | quote }}
+            - name: KEYCLOAK_URL
+              value: {{ .Values.runtime.keycloakUrl | quote }}
+            - name: KEYCLOAK_REALM
+              value: {{ .Values.runtime.keycloakRealm | quote }}
+            - name: KEYCLOAK_CLIENT_ID
+              value: {{ .Values.runtime.keycloakClientId | quote }}
       volumes:
-        - name: nginx-conf
+        - name: runtime-config
           configMap:
-            name: {{ include "frontend.fullname" . }}-nginx
+            name: {{ include "frontend.fullname" . }}-runtime
         {{- if .Values.staticContent.enabled }}
         - name: static
           configMap:

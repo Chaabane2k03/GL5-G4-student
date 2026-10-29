@@ -70,21 +70,27 @@ enrollment-service:
   secretData: null
 
 keycloak:
+  # Keycloak is not mirrored in ECR: the chart pulls it from quay.io.
   image:
-    repository: <aws-account-id>.dkr.ecr.<region>.amazonaws.com/gl5-g4-keycloak
-    tag: latest
+    repository: quay.io/keycloak/keycloak
+    tag: "26.0"
     pullPolicy: IfNotPresent
+  # Public issuer. Must be the ALB URL of the /auth relay, otherwise the
+  # browser is redirected to an in-cluster hostname. Set it on install:
+  #   --set keycloak.hostname=http://<alb-dns>/auth
+  hostname: http://keycloak:8080
 
 frontend:
   image:
-    repository: <aws-account-id>.dkr.ecr.<region>.amazonaws.com/gl5-g4-frontend
+    repository: <aws-account-id>.dkr.ecr.<region>.amazonaws.com/gl5-g4-frontend-service
     tag: latest
     pullPolicy: IfNotPresent
-
-# --- Ingress -------------------------------------------------------------
-# The AWS Load Balancer Controller exposes the frontend. The Ingress only
-# routes to the frontend: the API Gateway stays internal.
-frontend:
+  runtime:
+    # HTTP-only environments cannot use Web Crypto: PKCE must be disabled.
+    pkceMethod: false
+  # --- Ingress -----------------------------------------------------------
+  # The AWS Load Balancer Controller exposes the frontend. The Ingress only
+  # routes to the frontend: the API Gateway stays internal.
   fullnameOverride: frontend
   replicaCount: 2
   ingress:

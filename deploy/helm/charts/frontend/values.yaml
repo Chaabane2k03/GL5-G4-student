@@ -1,12 +1,12 @@
 # ---------------------------------------------------------------------------
-# Nginx frontend: serves the user interface and relays /api to the API Gateway.
+# Angular frontend image served by Nginx.
 # ---------------------------------------------------------------------------
 
 replicaCount: 2
 
 image:
-  repository: nginx
-  tag: "1.27-alpine"
+  repository: gl5-g4-frontend-service
+  tag: local
   pullPolicy: IfNotPresent
 
 imagePullSecrets: []
@@ -31,7 +31,7 @@ securityContext:
 
 service:
   type: ClusterIP
-  port: 80
+  port: 8080
   annotations: {}
   labels: {}
 
@@ -41,16 +41,16 @@ serviceAccount:
   annotations: {}
   automountServiceAccountToken: false
 
-# Internal API Gateway the /api requests are relayed to. The gateway Service
-# is ClusterIP: it is never exposed outside of the cluster.
-gateway:
-  service: api-gateway
-  port: 80
-  # Prefix stripped before the request is forwarded: /api/department/1 reaches
-  # the gateway as /department/1, which is the path its routes expect.
-  apiPrefix: /api
-  # Seconds the gateway is given to answer.
-  proxyTimeoutSeconds: 60
+containerPort: 8080
+
+runtime:
+  apiBaseUrl: /api
+  keycloakUrl: /auth
+  keycloakRealm: gl5
+  keycloakClientId: cursus-frontend
+  # Production and Docker Compose keep PKCE enabled. The Minikube HTTP values
+  # explicitly override this to false.
+  pkceMethod: S256
 
 ingress:
   enabled: true
@@ -68,7 +68,7 @@ ingress:
 # console; in production `image.repository` points at the image built from
 # the real frontend repository and this block is disabled.
 staticContent:
-  enabled: true
+  enabled: false
   files:
     index.html: |
       <!DOCTYPE html>

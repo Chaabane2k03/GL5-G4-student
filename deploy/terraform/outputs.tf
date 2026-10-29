@@ -34,13 +34,38 @@ output "ecr_urls" {
   })
 }
 
-output "helm_command" {
-  description = "Alternative deployment path: plain Helm instead of helm_release"
-  value       = <<-EOT
-    helm upgrade --install gl5-student ../helm/umbrella/gl5-student \
-      -n gl5-student --create-namespace \
-      --set rds.enabled=true --set rds.databases[0].name=student-db \
-      --set rds.databases[0].endpoint=${aws_db_instance.gl5.address} \
-      --wait --timeout 15m
-  EOT
+output "alb_hostname_command" {
+  description = "Read the ALB DNS name after the Ingress is reconciled"
+  value       = "kubectl -n gl5-student get ingress frontend -o jsonpath='{.status.loadBalancer.ingress[0].hostname}'"
+}
+
+output "phase2_command" {
+  description = "Run this once the ALB hostname is known: it switches Keycloak and the gateway to the public issuer"
+  value       = "terraform apply -var=\"public_hostname=<alb-dns-name>\""
+}
+
+output "app_url" {
+  description = "Public URL once public_hostname is set"
+  value       = var.public_hostname == "" ? "(not set yet — see phase2_command)" : "${var.public_scheme}://${var.public_hostname}/"
+}
+
+output "grafana_admin_password" {
+  description = "Grafana admin password (user: admin). Read with: terraform output -raw grafana_admin_password"
+  value       = random_password.grafana.result
+  sensitive   = true
+}
+
+output "grafana_url" {
+  description = "Grafana URL (the ALB hostname is enough; public_hostname is only needed for the app)"
+  value       = var.public_hostname == "" ? "(use http://<alb-hostname>/grafana/ — see monitoring_ingress_hostname_command)" : "${var.public_scheme}://${var.public_hostname}/grafana/"
+}
+
+output "prometheus_url" {
+  description = "Prometheus URL (the ALB hostname is enough; public_hostname is only needed for the app)"
+  value       = var.public_hostname == "" ? "(use http://<alb-hostname>/prometheus/ — see monitoring_ingress_hostname_command)" : "${var.public_scheme}://${var.public_hostname}/prometheus/"
+}
+
+output "monitoring_ingress_hostname_command" {
+  description = "Read the ALB DNS name used by the Grafana and Prometheus Ingresses"
+  value       = "kubectl -n observability get ingress monitoring-grafana -o jsonpath='{.status.loadBalancer.ingress[0].hostname}'"
 }

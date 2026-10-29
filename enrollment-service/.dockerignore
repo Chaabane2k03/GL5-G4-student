@@ -1,2 +1,6 @@
 target/
 .git
+.env
+Dockerfile.jenkins
+docker-compose*.yml
+jenkins/

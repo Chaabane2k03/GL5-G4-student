@@ -43,5 +43,6 @@ Thumbs.db
 !.env.example
 .m2
 
-jenkins/
+# Local Jenkins home at the repository root (service-level jenkins/casc.yaml files are tracked)
+/jenkins/
 deploy/helm/umbrella/gl5-student/charts/*.tgz

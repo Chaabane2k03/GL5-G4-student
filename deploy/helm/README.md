@@ -49,7 +49,8 @@ Construire les images applicatives depuis la racine du dépôt :
 ```bash
 docker compose build \
   config-server eureka-server api-gateway \
-  student-service course-service department-service enrollment-service
+  student-service course-service department-service enrollment-service \
+  frontend-service
 ```
 
 Charger les images dans le nœud Minikube :
@@ -59,7 +60,7 @@ minikube image load gl5-g4-student-service:local
 minikube image load gl5-g4-course-service:local
 minikube image load gl5-g4-department-service:local
 minikube image load gl5-g4-enrollment-service:local
-minikube image load nginx:1.27-alpine
+minikube image load gl5-g4-frontend-service:local
 ```
 
 Vérifier le cluster avant le déploiement :
@@ -86,6 +87,20 @@ cd deploy/helm/umbrella/gl5-student
 rm -rf charts && helm dependency update
 ```
 
+Créer le certificat TLS local avant le premier déploiement :
+```bash
+mkdir -p /tmp/gl5-g4-tls
+openssl req -x509 -nodes -newkey rsa:2048 -days 30 \
+  -keyout /tmp/gl5-g4-tls/tls.key \
+  -out /tmp/gl5-g4-tls/tls.crt \
+  -subj '/CN=gl5-g4.test' \
+  -addext 'subjectAltName=DNS:gl5-g4.test'
+kubectl create secret tls gl5-g4-tls -n gl5-student \
+  --cert=/tmp/gl5-g4-tls/tls.crt \
+  --key=/tmp/gl5-g4-tls/tls.key \
+  --dry-run=client -o yaml | kubectl apply -f -
+```
+
 ### 2. Déployer sur Minikube
 
 #### Namespace applicatif
@@ -110,10 +125,22 @@ minikube ip
 ```
 
 Accès :
-- Frontend : http://gl5-g4.test/
+- Frontend : https://gl5-g4.test/
 
 > `.local` est réservé au mDNS sur plusieurs distributions Linux. Utilisez
 > `gl5-g4.test` pour éviter `ERR_NAME_NOT_RESOLVED`.
+>
+> Le profil Minikube active HTTPS et PKCE. Le certificat ci-dessus est
+> auto-signé : le navigateur affichera un avertissement de sécurité lors de
+> la première ouverture. Acceptez l'exception pour le développement local.
+>
+> Le nom d'hôte est exactement `gl5-g4.test` (et non `igl4-g4.test`). Si
+> Minikube a été arrêté avec `minikube stop`, redémarrez-le avant d'ouvrir
+> l'URL :
+> ```bash
+> minikube start --profile=minikube --driver=docker --cpus=6 --memory=6144 \
+>   --addons=ingress,metrics-server
+> ```
 
 ## Tests locaux Minikube
 
@@ -136,8 +163,8 @@ kubectl -n gl5-student get deploy \
 Tester l'Ingress sans dépendre du DNS :
 ```bash
 MINIKUBE_IP="$(minikube ip)"
-curl --resolve gl5-g4.test:80:"${MINIKUBE_IP}" \
-  http://gl5-g4.test/
+curl -k --resolve gl5-g4.test:443:"${MINIKUBE_IP}" \
+  https://gl5-g4.test/
 ```
 
 ### Authentification de test
@@ -152,7 +179,8 @@ Minikube sont des comptes de démonstration :
 | `student` | `student` | STUDENT |
 
 Le frontend fournit une console CRUD authentifiée. Ouvrir
-`http://gl5-g4.test/`, sélectionner un utilisateur, puis cliquer sur
+`https://gl5-g4.test/`, accepter l'avertissement du certificat auto-signé,
+sélectionner un utilisateur, puis cliquer sur
 **Sign in**.
 
 ### Tests des APIs via le frontend
@@ -231,10 +259,15 @@ helm upgrade --install gl5-student ./deploy/helm/umbrella/gl5-student \
 
 **Points importants EKS :**
 - Remplacer tous les placeholders `<...>` dans `values/eks/gl5-student.yaml` (account ID, région, domaine, RDS endpoints, ARN ACM, VPC CIDR, IRSA role)
+- Renseigner obligatoirement l'issuer public de Keycloak, sinon le navigateur est redirigé vers `keycloak:8080` :
+  `--set keycloak.hostname=http://<dns-de-l-alb>/auth` (le frontend relaie `/auth` vers le Service Keycloak)
+- En HTTP seul, garder `frontend.runtime.pkceMethod: false` : l'application bascule alors sur le flux implicite, que le client `cursus-frontend` doit autoriser (`implicitFlowEnabled`) ; Web Crypto n'existe pas hors contexte sécurisé
 - Les bases MySQL StatefulSets sont désactivées (`enabled: false`), remplacées par des Services `ExternalName` vers RDS
 - Les Secrets sont créés par External Secrets Operator depuis AWS Secrets Manager
 - Pas de `imagePullSecrets` nécessaire (node role IAM)
 - Ingress via AWS Load Balancer Controller (classe `alb`)
+
+> Le chemin recommandé pour le lab AWS Academy est `deploy/terraform/README.md` : Terraform crée l'infrastructure, pousse les valeurs ci-dessus dans Helm et gère la mise à jour en deux temps de l'issuer public.
 
 ## Mise à jour et Rollback
 

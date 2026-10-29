@@ -1,0 +1,63 @@
+import { signal } from '@angular/core';
+import { ComponentFixture, TestBed } from '@angular/core/testing';
+import { Router } from '@angular/router';
+import { AuthService } from '../../core/auth/auth.service';
+import { ConfigService } from '../../core/config/runtime-config';
+import { ConnexionComponent } from './connexion.component';
+
+describe('ConnexionComponent', () => {
+  let fixture: ComponentFixture<ConnexionComponent>;
+
+  const authServiceMock = {
+    isAuthenticated: signal(false),
+    isKeycloakAvailable: signal(true),
+    authServerUrl: signal('http://localhost:8080'),
+    login: jasmine.createSpy('login').and.resolveTo(),
+    retryConnection: jasmine.createSpy('retryConnection').and.resolveTo(false),
+  };
+
+  const configServiceMock = {
+    loadError: signal<string | null>(null),
+  };
+
+  const routerMock = {
+    navigate: jasmine.createSpy('navigate'),
+  };
+
+  beforeEach(async () => {
+    authServiceMock.isAuthenticated.set(false);
+    authServiceMock.isKeycloakAvailable.set(true);
+
+    await TestBed.configureTestingModule({
+      imports: [ConnexionComponent],
+      providers: [
+        { provide: AuthService, useValue: authServiceMock },
+        { provide: ConfigService, useValue: configServiceMock },
+        { provide: Router, useValue: routerMock },
+      ],
+    }).compileComponents();
+
+    fixture = TestBed.createComponent(ConnexionComponent);
+    fixture.detectChanges();
+  });
+
+  it('resets transient loading states when the page is restored', () => {
+    const component = fixture.componentInstance;
+    component.connecting.set(true);
+    component.retrying.set(true);
+
+    window.dispatchEvent(new PageTransitionEvent('pageshow'));
+
+    expect(component.connecting()).toBeFalse();
+    expect(component.retrying()).toBeFalse();
+  });
+
+  it('uses the simplified login label and footer', () => {
+    const text = fixture.nativeElement.textContent as string;
+
+    expect(text).toContain('Se connecter');
+    expect(text).not.toContain('Se connecter avec Keycloak');
+    expect(text).toContain("Université — Tous droits d'accès réservés");
+    expect(text).not.toContain('Protocole OAuth2 / OIDC avec vérification PKCE (S256)');
+  });
+});

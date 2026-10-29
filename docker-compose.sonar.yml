@@ -11,6 +11,10 @@
 # This stack is intentionally independent from docker-compose.yml: it has its own project
 # name and volumes, so `docker compose down -v` on the application stack never deletes
 # SonarQube history, and both stacks can run at the same time (only port 9000 is published).
+#
+# It also creates the "gl5-sonar-net" network. Each service's docker-compose.jenkins.yml
+# joins that network so its Jenkins controller can scan through http://sonarqube:9000 and
+# SonarQube can call the controller's webhook back on its internal container name.
 name: gl5-sonar
 
 services:
@@ -23,6 +27,8 @@ services:
       POSTGRES_DB: ${SONAR_DB_NAME:-sonar}
     volumes:
       - sonar-db-data:/var/lib/postgresql/data
+    networks:
+      - sonar-net
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${SONAR_DB_USER:-sonar} -d ${SONAR_DB_NAME:-sonar}"]
       interval: 10s
@@ -49,6 +55,10 @@ services:
       - sonar-data:/opt/sonarqube/data
       - sonar-extensions:/opt/sonarqube/extensions
       - sonar-logs:/opt/sonarqube/logs
+    networks:
+      sonar-net:
+        aliases:
+          - sonarqube
     healthcheck:
       test: ["CMD-SHELL", "curl -fsS http://localhost:9000/api/system/status | grep -q '\"status\":\"UP\"' || exit 1"]
       interval: 15s
@@ -62,3 +72,8 @@ volumes:
   sonar-data:
   sonar-extensions:
   sonar-logs:
+
+networks:
+  # Joined by every service's docker-compose.jenkins.yml (external network).
+  sonar-net:
+    name: gl5-sonar-net
