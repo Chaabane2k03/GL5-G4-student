@@ -54,6 +54,12 @@ variable "storage_class" {
   default     = "gp2"
 }
 
+variable "enable_observability" {
+  description = "Install kube-prometheus-stack (Prometheus + Grafana) and scrape the application Actuator endpoints."
+  type        = bool
+  default     = true
+}
+
 variable "db_instance_class" {
   description = "RDS size (labs: nano/small/medium allowed)"
   type        = string

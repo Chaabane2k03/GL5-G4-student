@@ -407,6 +407,14 @@ Then open:
 - Loki: http://localhost:3100
 - Grafana dashboard: **GL5-G4 / GL5-G4 Spring Services**
 
+On the EKS deployment, Terraform installs `kube-prometheus-stack` in the
+`observability` namespace and exposes the same dashboard at
+`http://<alb-hostname>/grafana/` (Prometheus at `/prometheus/`). The app chart
+publishes one `ServiceMonitor` per Spring service, so the metrics appear
+without extra configuration. See
+[`deploy/terraform/README.md`](./deploy/terraform/README.md#5-access-prometheus-and-grafana)
+for the password and verification commands.
+
 Jaeger receives OTLP/HTTP traces on `localhost:4318`. Host-run applications use this
 endpoint by default. The main Docker Compose file sets
 `OTEL_EXPORTER_OTLP_ENDPOINT=http://host.docker.internal:4318/v1/traces` for containerized

@@ -192,6 +192,22 @@ enrollment-db:
   password: enrollment-dev-password
   rootPassword: enrollment-root-dev-password
 
+# --- Observability (EKS / kube-prometheus-stack) ---------------------------
+# When enabled, the umbrella chart publishes one ServiceMonitor per Spring
+# service. The Prometheus instance installed by Terraform
+# (deploy/terraform/helm.tf) discovers all ServiceMonitors in all namespaces,
+# so no extra release label is required.
+#
+# Terraform enables this after it has installed kube-prometheus-stack; the
+# monitoring.coreos.com CRDs must exist before Helm applies these resources.
+observability:
+  serviceMonitor:
+    enabled: false
+    interval: 30s
+    scrapeTimeout: 10s
+    # Extra labels copied to every ServiceMonitor.
+    labels: {}
+
 # --- NetworkPolicies ------------------------------------------------------
 networkPolicy:
   enabled: true

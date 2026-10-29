@@ -443,9 +443,18 @@ metadata:
     app.kubernetes.io/managed-by: {{ .Release.Service }}
 spec:
   podSelector:
-    matchLabels:
-      app.kubernetes.io/component: microservice
-      app.kubernetes.io/instance: {{ $instance }}
+    matchExpressions:
+      - key: app.kubernetes.io/instance
+        operator: In
+        values:
+          - {{ $instance }}
+      - key: app.kubernetes.io/name
+        operator: In
+        values:
+          - {{ $np.gateway.name }}
+          {{- range $svc := $np.microservices }}
+          - {{ $svc.name }}
+          {{- end }}
   policyTypes:
     - Ingress
   ingress:
@@ -453,6 +462,13 @@ spec:
         - namespaceSelector:
             matchLabels:
               kubernetes.io/metadata.name: {{ $np.observabilityNamespace }}
+      ports:
+        - protocol: TCP
+          port: {{ $np.gateway.port }}
+        {{- range $svc := $np.microservices }}
+        - protocol: TCP
+          port: {{ $svc.port }}
+        {{- end }}
 
 ---
 apiVersion: networking.k8s.io/v1
