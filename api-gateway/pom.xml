@@ -19,6 +19,9 @@
     <properties>
         <java.version>17</java.version>
         <spring-cloud.version>2025.0.3</spring-cloud.version>
+        <nexus.url>http://host.docker.internal:8081</nexus.url>
+        <nexus.release.repo>gl5-student-releases</nexus.release.repo>
+        <nexus.snapshot.repo>gl5-student-snapshots</nexus.snapshot.repo>
         <!-- Bucket4j is not covered by the Spring or Spring Cloud BOMs, so it has
              to be pinned explicitly. Caffeine below needs no version: Spring Boot
              already manages it. -->
@@ -166,5 +169,16 @@
             </plugin>
         </plugins>
     </build>
+
+    <distributionManagement>
+        <snapshotRepository>
+            <id>nexus-snapshots</id>
+            <url>${nexus.url}/repository/${nexus.snapshot.repo}/</url>
+        </snapshotRepository>
+        <repository>
+            <id>nexus-releases</id>
+            <url>${nexus.url}/repository/${nexus.release.repo}/</url>
+        </repository>
+    </distributionManagement>
 
 </project>
