@@ -55,6 +55,17 @@ $env:AWS_REGION            = "us-east-1"
 aws sts get-caller-identity
 ```
 
+Linux (bash):
+
+```bash
+export AWS_ACCESS_KEY_ID="..."
+export AWS_SECRET_ACCESS_KEY="..."
+export AWS_SESSION_TOKEN="..."
+export AWS_REGION="us-east-1"
+
+aws sts get-caller-identity
+```
+
 The default region is `us-east-1`, the node type `t3.large`, the DB
 `db.t3.micro`, and the Kubernetes version `1.36`. Use a version that is still
 in **standard support**: extended support adds `$0.60/h` to the control plane.
@@ -64,20 +75,32 @@ cd deploy/terraform
 terraform init
 ```
 
+Linux (bash):
+
+```bash
+cd deploy/terraform
+terraform init
+```
+
 ---
 
 ## 1. Create the ECR repositories first
 
 The images must exist before the pods start, so create only the ECR repos
-first (a few seconds):
+first (a few seconds).
 
 ```powershell
 terraform apply -target "aws_ecr_repository.app" -auto-approve
 ```
 
+Linux (bash):
+
+```bash
+terraform apply -target "aws_ecr_repository.app" -auto-approve
+```
+
 > Keep the quotes: Windows PowerShell 5.1 turns `-target=aws_ecr_repository.app`
 > into `aws_ecr_repository` and Terraform rejects it with
-> `Invalid target "aws_ecr_repository"`.
 
 Set up the registry variables:
 
@@ -88,6 +111,17 @@ $REGISTRY   = "$ACCOUNT_ID.dkr.ecr.$REGION.amazonaws.com"
 
 aws ecr get-login-password --region $REGION |
   docker login --username AWS --password-stdin $REGISTRY
+```
+
+Linux (bash):
+
+```bash
+REGION="us-east-1"
+ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+REGISTRY="$ACCOUNT_ID.dkr.ecr.$REGION.amazonaws.com"
+
+aws ecr get-login-password --region "$REGION" |
+  docker login --username AWS --password-stdin "$REGISTRY"
 ```
 
 ---
@@ -111,22 +145,55 @@ foreach ($svc in "api-gateway","student-service","course-service",
 }
 ```
 
+Linux (bash):
+
+```bash
+cd ../..
+
+docker compose build \
+  api-gateway student-service course-service department-service \
+  enrollment-service frontend-service
+
+for svc in api-gateway student-service course-service \
+           department-service enrollment-service frontend-service; do
+  image="gl5-g4-$svc"
+  docker tag "$image:local" "$REGISTRY/$image:latest"
+  docker push "$REGISTRY/$image:latest"
+done
+```
+
 `frontend-service` is the real Angular image (it contains the `/api`, `/auth`
 and `/health` Nginx configuration). Do not substitute a stock `nginx` image.
 
-Keycloak is pulled from `quay.io` directly; it has no ECR repository.
-
-> On an Apple Silicon machine add `--platform linux/amd64` to the build.
-> For anything beyond a demo, tag each build with a git SHA and apply with
-> `-var="image_tag=<sha>"` instead of reusing `latest`.
-
----
 
 ## 3. Create the AWS stack and deploy the app
 
 ```powershell
 cd deploy/terraform
 terraform apply -auto-approve
+
+# Point kubectl at the new cluster (same command as the configure_kubectl output)
+aws eks update-kubeconfig --name gl5-g4 --region us-east-1
+```
+
+Linux (bash):
+
+```bash
+cd deploy/terraform
+terraform apply -auto-approve
+
+# Point kubectl at the new cluster (same command as the configure_kubectl output)
+aws eks update-kubeconfig --name gl5-g4 --region us-east-1
+```
+
+`update-kubeconfig` writes/updates the `gl5-g4` context in `~/.kube/config` and
+makes it the current one, so the `kubectl` commands below work without any
+extra flag. If you changed `cluster_name` or `aws_region`, read the exact
+command from `terraform output -raw configure_kubectl`. Check it with:
+
+```bash
+kubectl config current-context   # -> arn:aws:eks:us-east-1:<account>:cluster/gl5-g4
+kubectl get nodes
 ```
 
 This takes about **15–25 minutes** (EKS control plane, nodes and RDS are slow).
@@ -137,6 +204,12 @@ pod is Ready — that is normal.
 Watch the pods:
 
 ```powershell
+kubectl -n gl5-student get pods -w
+```
+
+Linux (bash):
+
+```bash
 kubectl -n gl5-student get pods -w
 ```
 
@@ -161,6 +234,21 @@ while (-not $ALB) {
   $ALB = kubectl -n gl5-student get ingress frontend `
     -o jsonpath="{.status.loadBalancer.ingress[0].hostname}"
 }
+
+terraform apply -auto-approve -var "public_hostname=$ALB"
+```
+
+Linux (bash):
+
+```bash
+ALB=$(kubectl -n gl5-student get ingress frontend \
+  -o jsonpath="{.status.loadBalancer.ingress[0].hostname}")
+
+while [ -z "$ALB" ]; do
+  sleep 10
+  ALB=$(kubectl -n gl5-student get ingress frontend \
+    -o jsonpath="{.status.loadBalancer.ingress[0].hostname}")
+done
 
 terraform apply -auto-approve -var "public_hostname=$ALB"
 ```
@@ -191,10 +279,26 @@ kubectl -n gl5-student rollout status deployment/keycloak
 kubectl -n gl5-student rollout status deployment/api-gateway
 ```
 
+Linux (bash):
+
+```bash
+kubectl -n gl5-student rollout status deployment/keycloak
+kubectl -n gl5-student rollout status deployment/api-gateway
+```
+
 Open the app:
 
 ```powershell
 Start-Process "http://$ALB/"
+```
+
+Linux (bash):
+
+```bash
+xdg-open "http://$ALB/"   # Linux desktop
+# On macOS: open "http://$ALB/"
+# On a headless/remote box, just curl it:
+# curl -I "http://$ALB/"
 ```
 
 Demo accounts from the imported realm:
@@ -246,6 +350,13 @@ kubectl -n gl5-student get pods,svc,ingress
 kubectl -n gl5-student get events --sort-by=.lastTimestamp
 ```
 
+Linux (bash):
+
+```bash
+kubectl -n gl5-student get pods,svc,ingress
+kubectl -n gl5-student get events --sort-by=.lastTimestamp
+```
+
 Through the frontend (same origin, the Nginx `/api` relay):
 
 ```powershell
@@ -274,6 +385,34 @@ foreach ($path in @(
 }
 ```
 
+Linux (bash, needs `curl` and `jq`):
+
+```bash
+TOKEN=$(curl -s -X POST \
+  "http://$ALB/auth/realms/gl5/protocol/openid-connect/token" \
+  -H "Content-Type: application/x-www-form-urlencoded" \
+  --data-urlencode "grant_type=password" \
+  --data-urlencode "client_id=api-gateway" \
+  --data-urlencode "username=admin" \
+  --data-urlencode "password=admin" |
+  jq -r .access_token)
+
+# No jq? Replace the jq call with:
+#   python3 -c 'import json,sys; print(json.load(sys.stdin)["access_token"])'
+
+# Each backend keeps its own context path, and the gateway forwards
+# /<context-path>/** unchanged, so the URLs below mirror the Angular API layer.
+for path in \
+  "/api/department/api/departments" \
+  "/api/course/api/courses" \
+  "/api/student/students/getAllStudents" \
+  "/api/enrollment/Enrollment/getAllEnrollment"; do
+  code=$(curl -s -o /dev/null -w '%{http_code}' "http://$ALB$path" \
+    -H "Authorization: Bearer $TOKEN")
+  echo "$path -> $code"
+done
+```
+
 Fresh databases are empty, so the four calls above return empty collections —
 `200` is the success criterion, not the payload.
 
@@ -289,7 +428,8 @@ served at `/api/department/v3/api-docs`, `/api/course/v3/api-docs`, etc.
 > first successful probe. A lone `503` immediately after `terraform apply` is
 > therefore expected — re-run the call after ~10 seconds instead of
 > redeploying. The breaker state is visible in the gateway health endpoint and
-> in `kubectl -n gl5-student logs deploy/api-gateway | Select-String "Circuit breaker"`.
+> in `kubectl -n gl5-student logs deploy/api-gateway | Select-String "Circuit breaker"`
+> (Linux: `... | grep "Circuit breaker"`).
 > Because the dashboard fires all four registry calls in parallel, a rollout can
 > make them fail together: the page still renders, and the **Actualiser**
 > button reloads the data once the breakers are closed.
@@ -311,15 +451,67 @@ foreach ($svc in "api-gateway","student-service","course-service",
 terraform apply -auto-approve -var "image_tag=$TAG" -var "public_hostname=$ALB"
 ```
 
+Linux (bash):
+
+```bash
+# build again, then
+TAG=$(git rev-parse --short HEAD)
+for svc in api-gateway student-service course-service \
+           department-service enrollment-service frontend-service; do
+  image="gl5-g4-$svc"
+  docker tag "$image:local" "$REGISTRY/$image:$TAG"
+  docker push "$REGISTRY/$image:$TAG"
+done
+
+terraform apply -auto-approve -var "image_tag=$TAG" -var "public_hostname=$ALB"
+```
+
 Helm rolls the Deployments because the image tag in the pod template changed.
 Reusing `latest` with `pullPolicy: IfNotPresent` does **not** force a pull;
 either use a unique tag or add `kubectl rollout restart` after pushing.
+
+### Updating Keycloak
+
+Keycloak follows its own version, not `image_tag`. To bump it, mirror the new
+upstream tag and apply it:
+
+```powershell
+$KC_TAG = "26.8.1"
+docker pull "quay.io/keycloak/keycloak:$KC_TAG"
+docker tag  "quay.io/keycloak/keycloak:$KC_TAG" "$REGISTRY/gl5-g4-keycloak:$KC_TAG"
+docker push "$REGISTRY/gl5-g4-keycloak:$KC_TAG"
+
+terraform apply -auto-approve -var "keycloak_image_tag=$KC_TAG" -var "public_hostname=$ALB"
+```
+
+Linux (bash):
+
+```bash
+KC_TAG="26.8.1"
+docker pull "quay.io/keycloak/keycloak:$KC_TAG"
+docker tag  "quay.io/keycloak/keycloak:$KC_TAG" "$REGISTRY/gl5-g4-keycloak:$KC_TAG"
+docker push "$REGISTRY/gl5-g4-keycloak:$KC_TAG"
+
+terraform apply -auto-approve -var "keycloak_image_tag=$KC_TAG" -var "public_hostname=$ALB"
+```
+
+The pod template tag changes, so the Deployment rolls by itself. Check the
+upstream release notes first: the chart only supports the `KC_HOSTNAME` +
+`KC_PROXY_HEADERS` options of Keycloak 26.
 
 ---
 
 ## 7. Teardown (important for the budget)
 
 ```powershell
+# Delete the application first so Helm removes its resources cleanly.
+helm uninstall gl5-student -n gl5-student
+terraform destroy -auto-approve
+```
+
+Linux (bash):
+
+```bash
 # Delete the application first so Helm removes its resources cleanly.
 helm uninstall gl5-student -n gl5-student
 terraform destroy -auto-approve
@@ -345,6 +537,19 @@ volumes, and the ECR repositories (`force_delete = true` is set).
 >   ForEach-Object { $_ -split '\s+' } |
 >   ForEach-Object { aws ec2 delete-security-group --group-id $_ }
 > aws ec2 delete-vpc --vpc-id $VPC
+> terraform state rm aws_vpc.gl5
+> ```
+>
+> Linux (bash):
+>
+> ```bash
+> VPC=$(terraform state show -no-color aws_vpc.gl5 |
+>   grep -E '^[[:space:]]*id[[:space:]]*=' | head -n1 | cut -d'"' -f2)
+> aws ec2 describe-security-groups --filters "Name=vpc-id,Values=$VPC" \
+>   --query "SecurityGroups[?GroupName!='default'].GroupId" --output text |
+>   tr '\t' '\n' | grep -v '^None$' |
+>   xargs -r -n1 aws ec2 delete-security-group --group-id
+> aws ec2 delete-vpc --vpc-id "$VPC"
 > terraform state rm aws_vpc.gl5
 > ```
 >
