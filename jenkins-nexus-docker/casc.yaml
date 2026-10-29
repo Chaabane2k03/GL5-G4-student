@@ -1,0 +1,109 @@
+jenkins:
+  systemMessage: "GL5 services CI - managed by Configuration as Code"
+  numExecutors: 2
+  scmCheckoutRetryCount: 2
+  mode: NORMAL
+
+  securityRealm:
+    local:
+      allowsSignup: false
+      users:
+        - id: "${JENKINS_ADMIN_USER:-admin}"
+          password: "${JENKINS_ADMIN_PASSWORD:-admin}"
+
+  authorizationStrategy:
+    loggedInUsersCanDoAnything:
+      allowAnonymousRead: false
+
+tool:
+  jdk:
+    installations:
+      - name: "JDK17"
+        home: "/opt/java/jdk17"
+  maven:
+    installations:
+      - name: "Maven3"
+        home: "/opt/maven"
+      - name: "maven-3.9"
+        home: "/opt/maven"
+
+credentials:
+  system:
+    domainCredentials:
+      - credentials:
+          - string:
+              scope: GLOBAL
+              id: "sonar-token"
+              secret: "${SONAR_TOKEN}"
+              description: "SonarQube token (SONAR_TOKEN)"
+          - usernamePassword:
+              scope: GLOBAL
+              id: "nexus"
+              username: "${NEXUS_USER:-admin}"
+              password: "${NEXUS_PASSWORD}"
+              description: "Nexus repository credentials"
+
+unclassified:
+  location:
+    url: "${JENKINS_INTERNAL_URL}"
+    adminAddress: "ci@localhost"
+  sonarGlobalConfiguration:
+    buildWrapperEnabled: true
+    installations:
+      - name: "SonarQube"
+        serverUrl: "http://sonarqube:9000"
+        credentialsId: "sonar-token"
+
+jobs:
+  - script: |
+      folder('service-pipelines') {
+        description('Multibranch pipelines for GL5 services')
+      }
+
+      def jobs = [
+        [name: 'department-service', path: 'department-service', description: 'Multibranch CI/CD pipeline for department-service'],
+        [name: 'enrollment-service', path: 'enrollment-service', description: 'Multibranch CI/CD pipeline for enrollment-service'],
+        [name: 'student-service', path: 'student-service', description: 'Multibranch CI/CD pipeline for student-service'],
+        [name: 'course-service', path: 'course-service', description: 'Multibranch CI/CD pipeline for course-service'],
+        [name: 'api-gateway', path: 'api-gateway', description: 'Multibranch CI/CD pipeline for api-gateway']
+      ]
+
+      jobs.each { config ->
+        def jobName = config['name']
+        def servicePath = config['path']
+        multibranchPipelineJob('service-pipelines/' + jobName) {
+          description(config['description'])
+          branchSources {
+            branchSource {
+              source {
+                git {
+                  id(jobName + '-source')
+                  remote('https://github.com/Chaabane2k03/GL5-G4-student.git')
+                  traits {
+                    gitBranchDiscovery()
+                    headWildcardFilter {
+                      includes('main develop feature/jenkins-nexus')
+                      excludes('')
+                    }
+                  }
+                }
+              }
+            }
+          }
+          factory {
+            workflowBranchProjectFactory {
+              scriptPath(servicePath + '/Jenkinsfile')
+            }
+          }
+          triggers {
+            periodicFolderTrigger {
+              interval('1d')
+            }
+          }
+          orphanedItemStrategy {
+            discardOldItems {
+              numToKeep(10)
+            }
+          }
+        }
+      }

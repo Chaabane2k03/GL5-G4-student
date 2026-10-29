@@ -1,18 +1,21 @@
 # Jenkins CI
 
-This project runs **one Jenkins controller per pipeline**, plus a **single shared
-SonarQube**. Stopping or resetting one controller does not affect the others.
+This project runs **one shared Jenkins controller for all service pipelines**,
+plus a **single shared SonarQube**. The centralized controller configuration is
+in [`jenkin-docker/`](jenkin-docker/).
 
-Jenkins clones the GitHub branch configured in each `jenkins/casc.yaml`, so the
-changes must be **pushed** before a build. It does not read your local folder.
+Jenkins clones the GitHub branch configured in [`jenkin-docker/casc.yaml`](jenkin-docker/casc.yaml),
+so the changes must be **pushed** before a build. It does not read your local
+folder.
 
 | Service | Jenkins job | URL | Branch |
 | --- | --- | --- | --- |
-| config-server | `config-server` | http://localhost:8091 | `feature/config-server` |
-| department-service | `department-service` | http://localhost:8092 | `feature/department-service` |
-| enrollment-service | `enrollment-service` | http://localhost:8093 | `feature/enrollment` |
-| eureka-server | `Eureka-Server-CI` | http://localhost:8094 | `feature/eureka-server` |
-| student-service | `student-service` | http://localhost:8095 | `feature/student_service` |
+| config-server | `config-server` | http://localhost:8090 | `feature/jenkins-nexus` |
+| department-service | `department-service` | http://localhost:8090 | `feature/jenkins-nexus` |
+| enrollment-service | `enrollment-service` | http://localhost:8090 | `feature/jenkins-nexus` |
+| eureka-server | `Eureka-Server-CI` | http://localhost:8090 | `feature/jenkins-nexus` |
+| student-service | `student-service` | http://localhost:8090 | `feature/jenkins-nexus` |
+| course-service | `course-service` | http://localhost:8090 | `feature/jenkins-nexus` |
 
 Shared SonarQube is at http://localhost:9000, with containers `gl5-sonarqube`
 and `gl5-sonar-db`.
@@ -20,13 +23,10 @@ and `gl5-sonar-db`.
 ## Before you start
 
 - Docker Desktop (or Docker Engine) with Compose v2.
-- About 8 GB of RAM available to Docker; 10–12 GB is better for all five
-  controllers plus Sonar.
-- Ports `9000` and `8091`–`8095` free. During builds, `8082`, `8085`, `3309`
+- About 4 GB of RAM available to Docker; 6–8 GB is better for Jenkins plus Sonar.
+- Ports `9000`, `8090` and `50000` free. During builds, `8082`, `8085`, `3309`
   and `3310` must also be free.
-- The branch in each `jenkins/casc.yaml` contains these changes and is pushed.
-  If everything is on one branch, change the `branch('...')` line in all five
-  `jenkins/casc.yaml` files to that branch.
+- The `feature/jenkins-nexus` branch contains these changes and is pushed.
 
 ## Setup
 
@@ -50,29 +50,22 @@ ask you to change the password), then generate a token:
 
 **My Account → Security → Generate Token**
 
-### 3. Create the `.env` files
+### 3. Create the Jenkins `.env` file
 
-Each service needs a `.env`. They are git-ignored, so they must be created on
-every machine.
+The centralized Compose project reads one git-ignored environment file:
 
 ```powershell
-$services = 'config-server','department-service','enrollment-service','eureka-server','student-service'
-foreach ($s in $services) {
-    if (-not (Test-Path "$s/.env")) {
-        Copy-Item "$s/.env.example" "$s/.env"
-    }
+if (-not (Test-Path "jenkin-docker/.env")) {
+    Copy-Item "jenkin-docker/.env.example" "jenkin-docker/.env"
 }
 ```
 
-Put the Sonar token in all five files:
+Put the Sonar token in `jenkin-docker/.env`:
 
 ```powershell
 $token = '<paste-token-here>'
-$services = 'config-server','department-service','enrollment-service','eureka-server','student-service'
-foreach ($s in $services) {
-    (Get-Content "$s/.env") -replace '^SONAR_TOKEN=.*$', "SONAR_TOKEN=$token" |
-        Set-Content "$s/.env" -Encoding ascii
-}
+(Get-Content "jenkin-docker/.env") -replace '^SONAR_TOKEN=.*$', "SONAR_TOKEN=$token" |
+    Set-Content "jenkin-docker/.env" -Encoding ascii
 ```
 
 `config-server/.env` also needs the Config Server settings:
@@ -86,25 +79,20 @@ CONFIG_PASSWORD=<config-server-password>
 ENCRYPT_KEY=<config-repo-encryption-key>
 ```
 
-Each service uses `admin` / `admin` for Jenkins by default. If you change
+The controller uses `admin` / `admin` by default. If you change
 `JENKINS_PORT`, change `JENKINS_EXTERNAL_URL` to match.
 
-### 4. Build and start the controllers
+### 4. Build and start the shared controller
 
-Run them one at a time. The first build downloads Maven, the JDK and Jenkins
-plugins, so it takes a few minutes.
+The first build downloads Maven, the JDK and Jenkins plugins, so it takes a few
+minutes.
 
 ```powershell
-$services = 'config-server','department-service','enrollment-service','eureka-server','student-service'
-foreach ($s in $services) {
-    Push-Location $s
-    docker compose -f docker-compose.jenkins.yml up -d --build
-    Pop-Location
-}
+docker compose -f jenkin-docker/docker-compose.jenkins.yml up -d --build
 ```
 
-Log in at each URL with `admin` / `admin` unless you changed the `.env`.
-Wait a minute or two for the job to appear.
+Log in at http://localhost:8090 with `admin` / `admin` unless you changed the
+environment variables. Wait a minute or two for all six jobs to appear.
 
 ### 5. Register the Sonar webhooks
 
@@ -112,25 +100,20 @@ The quality gate needs SonarQube to call Jenkins back. This also disables Sonar'
 private-address check, which would otherwise reject the internal webhook URL.
 
 ```powershell
-$services = 'config-server','department-service','enrollment-service','eureka-server','student-service'
-foreach ($s in $services) {
-    Push-Location $s
-    docker compose -f docker-compose.jenkins.yml run --rm sonar-webhook-init
-    Pop-Location
-}
+docker compose -f jenkin-docker/docker-compose.jenkins.yml run --rm sonar-webhook-init
 ```
 
 Each run should end with `Registered webhook ...`.
 
 ### 6. Check everything
 
-- Five controllers are running: `docker ps --filter "name=jenkins"`.
-- All five Jenkins URLs open and show their job.
-- SonarQube shows five webhooks under **Administration → Configuration → Webhooks**.
+- One controller is running: `docker ps --filter "name=gl5-jenkins"`.
+- The Jenkins UI shows all six jobs.
+- SonarQube shows one webhook under **Administration → Configuration → Webhooks**.
 
 ## Run the pipelines
 
-Click **Build Now** in each Jenkins job. Run them one after another; five
+Click **Build Now** in each Jenkins job. Run them one after another; six
 simultaneous builds can run the Docker VM out of memory.
 
 | Job | What it does |
@@ -140,8 +123,9 @@ simultaneous builds can run the Docker VM out of memory.
 | `enrollment-service` | Build, tests, Sonar, Docker image |
 | `Eureka-Server-CI` | Build, tests, Sonar, quality gate, Docker image |
 | `student-service` | H2 tests, MySQL smoke test, Sonar, quality gate |
+| `course-service` | Build, tests, coverage, Sonar, Docker, compose smoke test |
 
-A healthy setup finishes with **SUCCESS** for all five jobs.
+A healthy setup finishes with **SUCCESS** for all six jobs.
 
 Before running department or student, stop the main application stack so its
 ports do not clash:
@@ -162,23 +146,23 @@ docker compose -f docker-compose.yml down
   Check the webhook list in Sonar.
 - **`port is already allocated`** — stop the app stack or change the port in
   `.env` and `JENKINS_EXTERNAL_URL`.
-- **Controllers die or Jenkins is slow** — give Docker more memory and run
+- **Jenkins dies or is slow** — give Docker more memory and run
   pipelines one at a time.
 - **Login fails after editing `.env`** — recreate the controller with `up -d`.
 
 ## Everyday commands
 
-Run these from a service directory.
+Run these from the repository root.
 
 | Task | Command |
 | --- | --- |
-| Show status | `docker compose -f docker-compose.jenkins.yml ps` |
-| Follow logs | `docker compose -f docker-compose.jenkins.yml logs -f jenkins` |
-| Restart Jenkins | `docker compose -f docker-compose.jenkins.yml restart jenkins` |
-| Apply `.env` changes | `docker compose -f docker-compose.jenkins.yml up -d` |
-| Rebuild the image | `docker compose -f docker-compose.jenkins.yml up -d --build` |
-| Stop, keep data | `docker compose -f docker-compose.jenkins.yml down` |
-| Stop and delete data | `docker compose -f docker-compose.jenkins.yml down -v` |
+| Show status | `docker compose -f jenkin-docker/docker-compose.jenkins.yml ps` |
+| Follow logs | `docker compose -f jenkin-docker/docker-compose.jenkins.yml logs -f jenkins` |
+| Restart Jenkins | `docker compose -f jenkin-docker/docker-compose.jenkins.yml restart jenkins` |
+| Apply environment changes | `docker compose -f jenkin-docker/docker-compose.jenkins.yml up -d` |
+| Rebuild the image | `docker compose -f jenkin-docker/docker-compose.jenkins.yml up -d --build` |
+| Stop, keep data | `docker compose -f jenkin-docker/docker-compose.jenkins.yml down` |
+| Stop and delete data | `docker compose -f jenkin-docker/docker-compose.jenkins.yml down -v` |
 
 To stop SonarQube, use `docker compose -f docker-compose.sonar.yml down`.
 Adding `-v` deletes its projects and tokens; generate a new token and re-register

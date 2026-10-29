@@ -1,0 +1,60 @@
+# Shared Jenkins controller for all service pipelines.
+#
+# The controller provides the common build toolchain used by every Jenkinsfile:
+# Docker CLI/Compose, JDK 17, Maven 3.9, Git, curl and jq.
+FROM jenkins/jenkins:2.580.1-jdk21
+
+USER root
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        ca-certificates curl gnupg git jq \
+    && install -m 0755 -d /etc/apt/keyrings \
+    && curl -fsSL https://download.docker.com/linux/debian/gpg -o /etc/apt/keyrings/docker.asc \
+    && chmod a+r /etc/apt/keyrings/docker.asc \
+    && . /etc/os-release \
+    && echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/debian ${VERSION_CODENAME} stable" \
+        > /etc/apt/sources.list.d/docker.list \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends docker-ce-cli docker-buildx-plugin docker-compose-plugin \
+    && rm -rf /var/lib/apt/lists/*
+
+ARG TARGETARCH=amd64
+ARG JDK17_VERSION=jdk-17.0.20.1%2B1
+RUN set -e; \
+    case "$TARGETARCH" in \
+        amd64) jdk_arch=x64 ;; \
+        arm64) jdk_arch=aarch64 ;; \
+        *) echo "Unsupported TARGETARCH: $TARGETARCH" >&2; exit 1 ;; \
+    esac; \
+    curl -fsSL "https://api.adoptium.net/v3/binary/version/${JDK17_VERSION}/linux/${jdk_arch}/jdk/hotspot/normal/eclipse" \
+        -o /tmp/jdk17.tgz; \
+    mkdir -p /opt/java/jdk17; \
+    tar -xzf /tmp/jdk17.tgz -C /opt/java/jdk17 --strip-components=1; \
+    rm /tmp/jdk17.tgz; \
+    /opt/java/jdk17/bin/java -version
+
+ARG MAVEN_VERSION=3.9.9
+RUN curl -fsSL "https://archive.apache.org/dist/maven/maven-3/${MAVEN_VERSION}/binaries/apache-maven-${MAVEN_VERSION}-bin.tar.gz" \
+        -o /tmp/maven.tgz \
+    && mkdir -p /opt/maven \
+    && tar -xzf /tmp/maven.tgz -C /opt/maven --strip-components=1 \
+    && rm /tmp/maven.tgz
+
+RUN jenkins-plugin-cli --plugins \
+        configuration-as-code \
+        job-dsl \
+        workflow-aggregator \
+        git \
+        junit \
+        jacoco \
+        sonar \
+        credentials-binding \
+        pipeline-stage-view \
+        maven-plugin \
+        timestamper \
+        email-ext \
+        docker-workflow
+
+RUN git config --system --add safe.directory '*'
+
+USER jenkins

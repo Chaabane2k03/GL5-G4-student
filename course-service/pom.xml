@@ -10,7 +10,7 @@
         <relativePath/> <!-- lookup parent from repository -->
     </parent>
 
-    <groupId>com.eduplatform</groupId>
+    <groupId>tn.fst</groupId>
     <artifactId>course-service</artifactId>
     <version>0.0.1-SNAPSHOT</version>
     <name>course-service</name>
@@ -231,14 +231,14 @@
                         <configuration>
                             <testPlugin>junit5</testPlugin>
                             <targetClasses>
-                                <param>com.eduplatform.course.*</param>
+                                <param>tn.fst.course.*</param>
                             </targetClasses>
                             <targetTests>
-                                <param>com.eduplatform.course.*</param>
+                                <param>tn.fst.course.*</param>
                             </targetTests>
                             <excludedClasses>
-                                <param>com.eduplatform.course.CourseServiceApplication</param>
-                                <param>com.eduplatform.course.config.*</param>
+                                <param>tn.fst.course.CourseServiceApplication</param>
+                                <param>tn.fst.course.config.*</param>
                             </excludedClasses>
                             <outputFormats>
                                 <param>HTML</param>

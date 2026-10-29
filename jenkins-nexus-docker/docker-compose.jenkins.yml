@@ -1,0 +1,100 @@
+name: gl5-jenkins
+
+services:
+  jenkins:
+    build:
+      context: .
+      dockerfile: Dockerfile.jenkins
+    image: ${JENKINS_IMAGE:-gl5-jenkins:latest}
+    container_name: ${JENKINS_CONTAINER_NAME:-gl5-jenkins}
+    user: root
+    environment:
+      HOME: /var/jenkins_home
+      CASC_JENKINS_CONFIG: /var/jenkins_home/casc_configs/casc.yaml
+      CASC_JENKINS_CONFIG_WATCH: "true"
+      JAVA_OPTS: "-Djenkins.install.runSetupWizard=false -Xmx768m"
+      JENKINS_ADMIN_USER: ${JENKINS_ADMIN_USER:-admin}
+      JENKINS_ADMIN_PASSWORD: ${JENKINS_ADMIN_PASSWORD:-admin}
+      JENKINS_EXTERNAL_URL: ${JENKINS_EXTERNAL_URL:-http://localhost:8092/}
+      JENKINS_INTERNAL_URL: ${JENKINS_INTERNAL_URL:-http://gl5-jenkins:8080/}
+      SONAR_TOKEN: ${SONAR_TOKEN:-}
+      NEXUS_USER: ${NEXUS_USER:-admin}
+      NEXUS_PASSWORD: ${NEXUS_PASSWORD:-}
+      DOCKER_HOST: unix:///var/run/docker.sock
+      TESTCONTAINERS_HOST_OVERRIDE: host.docker.internal
+      TESTCONTAINERS_RYUK_DISABLED: "true"
+      MAVEN_OPTS: -Dmaven.repo.local=/var/jenkins_home/.m2/repository
+    ports:
+      - "${JENKINS_PORT:-8090}:8080"
+      - "${JENKINS_AGENT_PORT:-50000}:50000"
+    volumes:
+      - jenkins-home:/var/jenkins_home
+      - maven-repo:/var/jenkins_home/.m2
+      - ./casc.yaml:/var/jenkins_home/casc_configs/casc.yaml:ro
+      - /var/run/docker.sock:/var/run/docker.sock
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    networks:
+      - default
+      - sonar
+    restart: unless-stopped
+
+  sonar-webhook-init:
+    image: curlimages/curl:8.10.1
+    container_name: ${SONAR_WEBHOOK_INIT_CONTAINER_NAME:-gl5-sonar-webhook-init}
+    depends_on:
+      jenkins:
+        condition: service_started
+    environment:
+      SONAR_URL: http://sonarqube:9000
+      SONAR_TOKEN: ${SONAR_TOKEN:-}
+      WEBHOOK_NAME: ${SONAR_WEBHOOK_NAME:-gl5-jenkins}
+      JENKINS_WEBHOOK_URL: ${JENKINS_WEBHOOK_URL:-http://gl5-jenkins:8080/sonarqube-webhook/}
+    networks:
+      - sonar
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        set -eu
+        if [ -z "$$SONAR_TOKEN" ]; then
+          echo "SONAR_TOKEN is empty; skipping SonarQube webhook registration."
+          exit 0
+        fi
+        echo "Waiting for SonarQube at $$SONAR_URL ..."
+        ready=0
+        for _ in $$(seq 1 120); do
+          if curl -fsS "$$SONAR_URL/api/system/status" | grep -q '"status":"UP"'; then
+            ready=1
+            break
+          fi
+          sleep 3
+        done
+        if [ "$$ready" -ne 1 ]; then
+          echo "SonarQube did not become ready in time." >&2
+          exit 1
+        fi
+        curl -fsS -u "$$SONAR_TOKEN:" -X POST "$$SONAR_URL/api/settings/set" \
+          --data-urlencode "key=sonar.validateWebhooks" \
+          --data-urlencode "value=false" >/dev/null
+        if curl -fsS -u "$$SONAR_TOKEN:" "$$SONAR_URL/api/webhooks/list" | grep -Fq "$$JENKINS_WEBHOOK_URL"; then
+          echo "Webhook $$WEBHOOK_NAME already registered."
+          exit 0
+        fi
+        curl -fsS -u "$$SONAR_TOKEN:" -X POST "$$SONAR_URL/api/webhooks/create" \
+          --data-urlencode "name=$$WEBHOOK_NAME" \
+          --data-urlencode "url=$$JENKINS_WEBHOOK_URL"
+        echo
+        echo "Registered webhook $$WEBHOOK_NAME -> $$JENKINS_WEBHOOK_URL"
+    restart: "no"
+
+volumes:
+  jenkins-home:
+  maven-repo:
+
+networks:
+  default:
+    external: true
+    name: gl5-jenkins-nexus
+  sonar:
+    external: true
+    name: gl5-sonar-net
