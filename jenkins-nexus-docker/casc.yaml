@@ -59,7 +59,7 @@ credentials:
 unclassified:
   location:
     url: "${JENKINS_EXTERNAL_URL}"
-    adminAddress: "ci@localhost"
+    adminAddress: "${SENDGRID_FROM:-chaabaneboussadia@gmail.com}"
   sonarGlobalConfiguration:
     buildWrapperEnabled: true
     installations:

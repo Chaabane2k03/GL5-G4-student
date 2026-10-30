@@ -219,6 +219,17 @@ The Jenkins CasC configuration creates the global credentials:
 - `github-token`, from `GITHUB_USER` and `GITHUB_TOKEN` (see
   [step 7](#7-configure-the-github-credential-and-webhook))
 
+The pipeline also sends the build report through the SendGrid v3 API. This
+requires two things:
+
+- a **Secret text** credential with the ID `mail-api` holding the SendGrid API
+  key (create it once in **Manage Jenkins → Credentials → System → Global
+  credentials**; CasC does not manage it);
+- a verified SendGrid sender in the Jenkins **System Admin e-mail address**
+  (**Manage Jenkins → System**), which is set from `SENDGRID_FROM` and
+  defaults to `chaabaneboussadia@gmail.com`. The recipient is `NOTIFY_EMAIL`
+  in the root [`Jenkinsfile`](../Jenkinsfile).
+
 If you change any of these credentials in `.env`, recreate Jenkins:
 
 ```powershell

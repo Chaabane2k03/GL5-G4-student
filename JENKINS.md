@@ -70,6 +70,15 @@ NEXUS_PASSWORD=<current-nexus-password>
 
 Never commit or share `.env`; it contains credentials and tokens.
 
+The root [`Jenkinsfile`](Jenkinsfile) sends the build report through the
+SendGrid v3 API at the end of every run. Create a **Secret text** credential
+with the ID `mail-api` containing the SendGrid API key, and set the sender in
+**Manage Jenkins → System → System Admin e-mail address** (it must be a
+verified SendGrid sender). `SENDGRID_FROM` in
+[`jenkins-nexus-docker/.env`](jenkins-nexus-docker/.env.example) sets that
+address; the recipient is `NOTIFY_EMAIL` in the `Jenkinsfile`. A failed
+notification only logs a warning and never changes the build result.
+
 ### 3. Create the shared network
 
 Create the external network once. If it already exists, Docker reports that it

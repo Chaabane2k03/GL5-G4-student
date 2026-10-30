@@ -183,11 +183,9 @@ pipeline {
                 def rows = (env.SELECTED_SERVICES ?: '').split(',').findAll { it }.collect { svc ->
                     "<tr><td>${svc}</td><td>${serviceResults[svc] ?: 'NOT RUN'}</td></tr>"
                 }.join('')
-                emailext(
-                    to: env.NOTIFY_EMAIL,
-                    subject: "${env.JOB_NAME} - Build #${env.BUILD_NUMBER} - ${currentBuild.currentResult}",
-                    mimeType: 'text/html',
-                    body: """
+                sendGridMail(
+                    "${env.JOB_NAME} - Build #${env.BUILD_NUMBER} - ${currentBuild.currentResult}",
+                    """
                         <h2>Jenkins Build Report</h2>
                         <p><b>Job:</b> ${env.JOB_NAME} &nbsp; <b>Build:</b> #${env.BUILD_NUMBER}
                            &nbsp; <b>Status:</b> ${currentBuild.currentResult}</p>
@@ -910,5 +908,80 @@ void publishFrontendToNexus(String svc, String version) {
                   "\${NEXUS_BASE}/repository/\${REPO}/${svc}/${version}/\$ARCHIVE"
             """
         }
+    }
+}
+
+// ---------------------------------------------------------------------
+//  Notification (SendGrid v3 API)
+//
+//  The API key is the Jenkins secret-text credential `mail-api`.
+//  The sender is the Jenkins "System Admin e-mail address"
+//  (Manage Jenkins -> System), overridable with SENDGRID_FROM.
+//  A notification failure never changes the build result.
+// ---------------------------------------------------------------------
+
+String mailSender() {
+    def from = env.SENDGRID_FROM?.trim()
+    if (from) {
+        return from
+    }
+    try {
+        // Jenkins "System Admin e-mail address" (Manage Jenkins -> System).
+        from = jenkins.model.JenkinsLocationConfiguration.get().getAdminAddress()?.trim()
+    } catch (err) {
+        echo "WARNING: cannot read the Jenkins admin e-mail address: ${err.message}"
+    }
+    return from ?: (env.NOTIFY_EMAIL ?: '').trim()
+}
+
+void sendGridMail(String subject, String htmlBody) {
+    def from = mailSender()
+    def to   = (env.NOTIFY_EMAIL ?: '').trim()
+    if (!from || !to) {
+        echo 'WARNING: sender or recipient address is missing; skipping notification'
+        return
+    }
+    try {
+        withCredentials([string(credentialsId: 'mail-api', variable: 'SENDGRID_API_KEY')]) {
+            writeFile file: '.sendgrid-mail-body.html', text: htmlBody
+            withEnv([
+                "MAIL_FROM=${from}",
+                "MAIL_TO=${to}",
+                "MAIL_SUBJECT=${subject}"
+            ]) {
+                sh '''
+                    set -eu
+                    set +x
+                    trap 'rm -f .sendgrid-mail-body.html .sendgrid-mail-payload.json .sendgrid-mail-response.json' EXIT
+
+                    jq -n \\
+                      --arg from "$MAIL_FROM" \\
+                      --arg to "$MAIL_TO" \\
+                      --arg subject "$MAIL_SUBJECT" \\
+                      --rawfile html .sendgrid-mail-body.html \\
+                      '{
+                         personalizations: [{ to: [{ email: $to }] }],
+                         from: { email: $from },
+                         subject: $subject,
+                         content: [{ type: "text/html", value: $html }]
+                       }' > .sendgrid-mail-payload.json
+
+                    CODE=$(curl -sS -o .sendgrid-mail-response.json -w '%{http_code}' \\
+                      -X POST https://api.sendgrid.com/v3/mail/send \\
+                      -H "Authorization: Bearer $SENDGRID_API_KEY" \\
+                      -H 'Content-Type: application/json' \\
+                      --data-binary @.sendgrid-mail-payload.json)
+
+                    if [ "$CODE" != "202" ]; then
+                      echo "WARNING: SendGrid returned HTTP $CODE" >&2
+                      cat .sendgrid-mail-response.json >&2 || true
+                      exit 1
+                    fi
+                    echo "Build report sent to $MAIL_TO (from $MAIL_FROM)"
+                '''
+            }
+        }
+    } catch (err) {
+        echo "WARNING: notification e-mail not sent: ${err.message}"
     }
 }
