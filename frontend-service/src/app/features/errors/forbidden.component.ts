@@ -105,6 +105,6 @@ export class ForbiddenComponent {
   private readonly router = inject(Router);
 
   goToDashboard(): void {
-    this.router.navigate(['/tableau-de-bord']);
+    void this.router.navigate(['/tableau-de-bord']);
   }
 }

@@ -34,6 +34,14 @@ export class AuthService {
     return user?.firstName || '';
   });
 
+  private createKeycloak(kcConfig: { url: string; realm: string; clientId: string }): Keycloak {
+    return new Keycloak({
+      url: kcConfig.url,
+      realm: kcConfig.realm,
+      clientId: kcConfig.clientId,
+    });
+  }
+
   async init(checkSso = true): Promise<boolean> {
     const kcConfig = this.configService.keycloak;
 
@@ -49,11 +57,7 @@ export class AuthService {
     }
 
     try {
-      this.keycloakInstance = new Keycloak({
-        url: kcConfig.url,
-        realm: kcConfig.realm,
-        clientId: kcConfig.clientId,
-      });
+      this.keycloakInstance = this.createKeycloak(kcConfig);
 
       const initOptions: KeycloakInitOptions = {
         // Authorization Code flow, always. Over plain HTTP the browser exposes
@@ -123,6 +127,10 @@ export class AuthService {
     }
   }
 
+  navigateToLogin(): void {
+    window.location.href = '/connexion';
+  }
+
   async logout(): Promise<void> {
     this.isAuthenticated.set(false);
     this.token.set(null);
@@ -134,10 +142,10 @@ export class AuthService {
           redirectUri: `${window.location.origin}/connexion`,
         });
       } catch {
-        window.location.href = '/connexion';
+        this.navigateToLogin();
       }
     } else {
-      window.location.href = '/connexion';
+      this.navigateToLogin();
     }
   }
 

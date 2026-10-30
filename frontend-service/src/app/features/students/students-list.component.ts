@@ -910,7 +910,7 @@ export class StudentsListComponent implements OnInit {
         if (dept !== null && !Number.isNaN(dept)) {
           this.selectedDepartmentId.set(dept);
         }
-        this.loadData();
+        void this.loadData();
       });
   }
 
@@ -1063,7 +1063,7 @@ export class StudentsListComponent implements OnInit {
         this.snackbar.success(`L'étudiant ${req.firstName} ${req.lastName} a été admis avec succès.`);
       }
       this.closeDrawer();
-      this.loadData();
+      void this.loadData();
     } catch (err) {
       console.error('Erreur soumission étudiant', err);
       this.formError.set("Impossible d'enregistrer le dossier de l'étudiant.");
@@ -1091,7 +1091,7 @@ export class StudentsListComponent implements OnInit {
       await firstValueFrom(this.studentApi.delete(s.id));
       this.snackbar.success(`Le dossier de ${s.firstName} ${s.lastName} a été définitivement supprimé.`);
       this.cancelDelete();
-      this.loadData();
+      void this.loadData();
     } catch (err) {
       console.error('Erreur suppression étudiant', err);
       this.snackbar.error(`Impossible de supprimer le dossier de l'étudiant. Des inscriptions sont peut-être encore actives.`);

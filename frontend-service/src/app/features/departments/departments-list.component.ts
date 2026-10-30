@@ -820,7 +820,7 @@ export class DepartmentsListComponent implements OnInit {
   });
 
   ngOnInit(): void {
-    this.loadData();
+    void this.loadData();
   }
 
   async loadData(): Promise<void> {
@@ -940,7 +940,7 @@ export class DepartmentsListComponent implements OnInit {
         this.snackbar.success(`Le département ${req.name} a été créé avec succès.`);
       }
       this.closeDrawer();
-      this.loadData();
+      void this.loadData();
     } catch (err) {
       console.error('Erreur soumission département', err);
       this.formError.set('Impossible d’enregistrer le département académique.');
@@ -968,7 +968,7 @@ export class DepartmentsListComponent implements OnInit {
       await firstValueFrom(this.departmentApi.delete(dept.id));
       this.snackbar.success(`Le département "${dept.name}" a été définitivement supprimé.`);
       this.cancelDelete();
-      this.loadData();
+      void this.loadData();
     } catch (err) {
       console.error('Erreur suppression département', err);
       this.snackbar.error(`Impossible de supprimer le département "${dept.name}". Des cours ou étudiants y sont peut-être rattachés.`);

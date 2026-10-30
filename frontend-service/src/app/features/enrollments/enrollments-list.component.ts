@@ -1351,7 +1351,7 @@ export class EnrollmentsListComponent implements OnInit {
   });
 
   ngOnInit(): void {
-    this.loadData();
+    void this.loadData();
   }
 
   async loadData(): Promise<void> {
@@ -1445,7 +1445,7 @@ export class EnrollmentsListComponent implements OnInit {
   }
 
   navigateToNew(): void {
-    this.router.navigate(['/inscriptions/nouvelle']);
+    void this.router.navigate(['/inscriptions/nouvelle']);
   }
 
   // --- Drag & Drop Kanban ---
@@ -1478,7 +1478,7 @@ export class EnrollmentsListComponent implements OnInit {
     try {
       await firstValueFrom(this.enrollmentApi.update(req));
       this.snackbar.success(`Statut mis à jour : ${ENROLLMENT_STATUS_LABELS[targetStatus]}.`);
-      this.loadData();
+      void this.loadData();
     } catch (err) {
       console.error('Erreur déplacement carte', err);
       this.snackbar.error('Impossible de modifier le statut de cette inscription.');
@@ -1519,7 +1519,7 @@ export class EnrollmentsListComponent implements OnInit {
       await firstValueFrom(this.enrollmentApi.update(req));
       this.snackbar.success('Procès-verbal de notation mis à jour.');
       this.closeGradeModal();
-      this.loadData();
+      void this.loadData();
     } catch (err) {
       console.error('Erreur mise à jour note', err);
       this.snackbar.error('Impossible d’enregistrer la note sur le serveur.');
@@ -1547,7 +1547,7 @@ export class EnrollmentsListComponent implements OnInit {
       await firstValueFrom(this.enrollmentApi.delete(item.enrollment.id));
       this.snackbar.success('Inscription supprimée avec succès.');
       this.cancelDelete();
-      this.loadData();
+      void this.loadData();
     } catch (err) {
       console.error('Erreur suppression inscription', err);
       this.snackbar.error('Impossible de supprimer cette inscription.');

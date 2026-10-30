@@ -936,7 +936,7 @@ export class CourseDetailComponent implements OnInit {
         if (idParam) {
           const id = Number.parseInt(idParam, 10);
           if (!Number.isNaN(id)) {
-            this.loadCourseData(id);
+            void this.loadCourseData(id);
           }
         }
       });
@@ -996,7 +996,7 @@ export class CourseDetailComponent implements OnInit {
   }
 
   navigateToNewEnrollment(): void {
-    this.router.navigate(['/inscriptions/nouvelle'], {
+    void this.router.navigate(['/inscriptions/nouvelle'], {
       queryParams: { courseId: this.course()?.id },
     });
   }
@@ -1012,7 +1012,7 @@ export class CourseDetailComponent implements OnInit {
         .subscribe({
           next: () => {
             this.snackbar.info(`Le cours ${c.code} a été archivé.`);
-            this.loadCourseData(c.id);
+            void this.loadCourseData(c.id);
           },
           error: () => {
             this.snackbar.error(`Erreur lors de l'archivage du cours.`);
@@ -1025,7 +1025,7 @@ export class CourseDetailComponent implements OnInit {
         .subscribe({
           next: () => {
             this.snackbar.success(`Le cours ${c.code} a été réactivé avec succès.`);
-            this.loadCourseData(c.id);
+            void this.loadCourseData(c.id);
           },
           error: () => {
             this.snackbar.error(`Erreur lors de la réactivation du cours.`);
@@ -1073,7 +1073,7 @@ export class CourseDetailComponent implements OnInit {
       await firstValueFrom(this.courseApi.update(this.course()!.id, req));
       this.snackbar.success('Fiche de cours modifiée avec succès.');
       this.closeDrawer();
-      this.loadCourseData(this.course()!.id);
+      void this.loadCourseData(this.course()!.id);
     } catch (err) {
       console.error('Erreur mise à jour cours', err);
       this.formError.set('Impossible de modifier le cours.');

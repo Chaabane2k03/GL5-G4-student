@@ -3,9 +3,6 @@
 @use '@fontsource/source-sans-3/latin.css' as sourceSans;
 @use 'styles/tokens';
 
-// CDK Styles nécessaires pour overlays, dialogs, drag & drop
-@import '@angular/cdk/overlay-prebuilt.css';
-
 *, *::before, *::after {
   box-sizing: border-box;
   margin: 0;

@@ -516,7 +516,7 @@ export class SearchOverlayComponent {
 
   navigateTo(path: string): void {
     this.onClose();
-    this.router.navigateByUrl(path);
+    void this.router.navigateByUrl(path);
   }
 
   onClose(): void {

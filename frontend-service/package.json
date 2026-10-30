@@ -10,6 +10,8 @@
     "build": "ng build --configuration production",
     "watch": "ng build --watch --configuration development",
     "test": "ng test --watch=false --browsers=ChromeHeadless",
+    "test:ci": "ng test --watch=false --browsers=ChromeHeadlessNoSandbox",
+    "coverage:normalize": "node scripts/normalize-lcov.cjs",
     "lint": "eslint .",
     "format": "prettier --write \"src/**/*.{ts,html,scss,json}\"",
     "seed": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/seed-demo.ps1"
@@ -44,6 +46,7 @@
     "karma-coverage": "~2.2.0",
     "karma-jasmine": "~5.1.0",
     "karma-jasmine-html-reporter": "~2.3.0",
+    "karma-junit-reporter": "^2.0.1",
     "prettier": "^3.5.0",
     "sass": "^1.85.0",
     "typescript": "~6.0.0",

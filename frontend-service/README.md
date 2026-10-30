@@ -26,6 +26,7 @@ src/app/
 ├── features/     # Écrans (dashboard, étudiants, cours, départements, inscriptions, erreurs)
 ├── layout/       # Shell applicatif (en-tête, navigation)
 └── shared/       # Composants UI réutilisables, pipes
+src/test/         # Tests unitaires Angular et leurs helpers
 docker/           # nginx.conf + template config.json (envsubst)
 keycloak/         # Realm gl5 + thème de connexion Cursus
 public/           # Favicon + config.json de développement

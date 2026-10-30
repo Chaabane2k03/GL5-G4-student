@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, HostListener, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, HostListener, inject, OnInit, signal } from '@angular/core';
 import { Router } from '@angular/router';
 import { AuthService } from '../../core/auth/auth.service';
 import { ConfigService } from '../../core/config/runtime-config';
@@ -221,7 +221,7 @@ import { ButtonComponent } from '../../shared/ui/button/button.component';
   `],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
-export class ConnexionComponent {
+export class ConnexionComponent implements OnInit {
   readonly authService = inject(AuthService);
   readonly configService = inject(ConfigService);
   private readonly router = inject(Router);
@@ -229,9 +229,9 @@ export class ConnexionComponent {
   readonly retrying = signal<boolean>(false);
   readonly connecting = signal<boolean>(false);
 
-  constructor() {
+  ngOnInit(): void {
     if (this.authService.isAuthenticated()) {
-      this.router.navigate(['/tableau-de-bord']);
+      void this.router.navigate(['/tableau-de-bord']);
     }
   }
 
@@ -246,7 +246,7 @@ export class ConnexionComponent {
     try {
       await this.authService.retryConnection();
       if (this.authService.isAuthenticated()) {
-        this.router.navigate(['/tableau-de-bord']);
+        void this.router.navigate(['/tableau-de-bord']);
       }
     } finally {
       this.retrying.set(false);

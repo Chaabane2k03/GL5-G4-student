@@ -1,4 +1,4 @@
-import { cleanedUrlWithoutOidcFragment } from './oidc-url';
+import { cleanedUrlWithoutOidcFragment } from '../../../../app/core/auth/oidc-url';
 
 describe('cleanedUrlWithoutOidcFragment', () => {
   it('returns null when there is no fragment', () => {

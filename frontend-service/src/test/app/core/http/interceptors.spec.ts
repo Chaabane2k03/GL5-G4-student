@@ -3,11 +3,11 @@ import { HttpTestingController, provideHttpClientTesting } from '@angular/common
 import { TestBed } from '@angular/core/testing';
 import { Router } from '@angular/router';
 import { firstValueFrom } from 'rxjs';
-import { AuthService } from '../auth/auth.service';
-import { ConfigService } from '../config/runtime-config';
-import { authInterceptor } from './auth.interceptor';
-import { errorInterceptor, ErrorNotificationService } from './error.interceptor';
-import { AppError } from '../error/app-error';
+import { AuthService } from '../../../../app/core/auth/auth.service';
+import { ConfigService } from '../../../../app/core/config/runtime-config';
+import { authInterceptor } from '../../../../app/core/http/auth.interceptor';
+import { errorInterceptor, ErrorNotificationService } from '../../../../app/core/http/error.interceptor';
+import { AppError } from '../../../../app/core/error/app-error';
 
 describe('HTTP Interceptors (Auth & Error Mapping)', () => {
   let httpClient: HttpClient;
@@ -71,7 +71,6 @@ describe('HTTP Interceptors (Auth & Error Mapping)', () => {
   });
 
   it('authInterceptor should attach Authorization: Bearer only to Gateway requests', async () => {
-    // 1. Requête dirigée vers la passerelle
     const gatewayResponse = firstValueFrom(httpClient.get('http://localhost:8072/department/api/departments'));
     await flushInterceptorPromises();
 
@@ -80,7 +79,6 @@ describe('HTTP Interceptors (Auth & Error Mapping)', () => {
     reqGateway.flush([]);
     await gatewayResponse;
 
-    // 2. Requête vers un domaine externe (ex: /config.json)
     const externalResponse = firstValueFrom(httpClient.get('/config.json'));
 
     const reqExternal = httpTestingController.expectOne('/config.json');
@@ -136,5 +134,23 @@ describe('HTTP Interceptors (Auth & Error Mapping)', () => {
     const error = await failure;
     expect(error.status).toBe(429);
     expect(error.message).toBe('Trop de requêtes, patientez quelques secondes.');
+  });
+
+  it('authInterceptor passes through request when token is missing', async () => {
+    authServiceMock.token = () => null;
+    httpClient.get('http://localhost:8072/department/api/departments').subscribe();
+    await flushInterceptorPromises();
+
+    const req = httpTestingController.expectOne('http://localhost:8072/department/api/departments');
+    expect(req.request.headers.has('Authorization')).toBeFalse();
+    req.flush([]);
+  });
+
+  it('ErrorNotificationService allows showing and dismissing unavailable notice', () => {
+    const service = new ErrorNotificationService();
+    service.showServiceUnavailable('Cours');
+    expect(service.serviceUnavailable()?.serviceName).toBe('Cours');
+    service.dismissServiceUnavailable();
+    expect(service.serviceUnavailable()).toBeNull();
   });
 });

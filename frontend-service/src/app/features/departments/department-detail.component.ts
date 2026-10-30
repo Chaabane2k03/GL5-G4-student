@@ -913,7 +913,7 @@ export class DepartmentDetailComponent implements OnInit {
         if (idParam) {
           const id = Number.parseInt(idParam, 10);
           if (!Number.isNaN(id)) {
-            this.loadData(id);
+            void this.loadData(id);
           }
         }
       });
@@ -989,7 +989,7 @@ export class DepartmentDetailComponent implements OnInit {
       await firstValueFrom(this.departmentApi.update(this.department()!.id, req));
       this.snackbar.success('Coordonnées du département mises à jour.');
       this.closeDrawer();
-      this.loadData(this.department()!.id);
+      void this.loadData(this.department()!.id);
     } catch (err) {
       console.error('Erreur mise à jour département', err);
       this.formError.set('Impossible de modifier le département.');
@@ -1011,7 +1011,7 @@ export class DepartmentDetailComponent implements OnInit {
       await firstValueFrom(this.departmentApi.delete(d.id));
       this.snackbar.success(`Le département ${d.name} a été supprimé.`);
       this.isDeleteModalOpen.set(false);
-      this.router.navigate(['/departements']);
+      void this.router.navigate(['/departements']);
     } catch (err) {
       console.error('Erreur suppression département', err);
       this.snackbar.error('Impossible de supprimer ce département car des cours ou des étudiants y sont rattachés.');

@@ -971,7 +971,7 @@ export class NewEnrollmentComponent implements OnInit {
           this.selectedCourseIds.update(set => new Set(set).add(courseId));
         }
 
-        this.loadCatalog();
+        void this.loadCatalog();
       });
   }
 
@@ -1087,12 +1087,12 @@ export class NewEnrollmentComponent implements OnInit {
       this.snackbar.success(
         `L'étudiant a été inscrit avec succès à ${successCount} enseignement(s).`
       );
-      this.router.navigate(['/inscriptions']);
+      void this.router.navigate(['/inscriptions']);
     } else if (successCount > 0) {
       this.snackbar.warning(
         `${successCount} cours inscrits avec succès. Échec pour : ${errors.join(', ')}.`
       );
-      this.router.navigate(['/inscriptions']);
+      void this.router.navigate(['/inscriptions']);
     } else {
       this.snackbar.error(
         `Échec de l'enregistrement de l'inscription pour tous les cours sélectionnés.`

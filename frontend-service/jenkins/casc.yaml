@@ -1,0 +1,64 @@
+jenkins:
+  systemMessage: "frontend-service CI - managed by Configuration as Code"
+  numExecutors: 2
+  scmCheckoutRetryCount: 2
+  mode: NORMAL
+
+  securityRealm:
+    local:
+      allowsSignup: false
+      users:
+        - id: "${JENKINS_ADMIN_USER:-admin}"
+          password: "${JENKINS_ADMIN_PASSWORD:-admin}"
+
+  authorizationStrategy:
+    loggedInUsersCanDoAnything:
+      allowAnonymousRead: false
+
+credentials:
+  system:
+    domainCredentials:
+      - credentials:
+          - string:
+              scope: GLOBAL
+              id: "sonar-token"
+              secret: "${SONAR_TOKEN}"
+              description: "SonarQube token (SONAR_TOKEN)"
+          - usernamePassword:
+              scope: GLOBAL
+              id: "nexus-docker"
+              username: "${NEXUS_ADMIN_USER:-admin}"
+              password: "${NEXUS_ADMIN_PASSWORD:-admin123}"
+              description: "Nexus Docker registry credentials (local only)"
+
+unclassified:
+  location:
+    url: "${JENKINS_EXTERNAL_URL}"
+    adminAddress: "ci@localhost"
+
+jobs:
+  - script: |
+      pipelineJob('frontend-service') {
+        description('CI pipeline for frontend-service: lint, tests, coverage, SonarQube, Docker build and smoke test.')
+        definition {
+          cpsScm {
+            scm {
+              git {
+                remote { url('https://github.com/Chaabane2k03/GL5-G4-student.git') }
+                branch('develop')
+              }
+            }
+            scriptPath('frontend-service/Jenkinsfile')
+            lightweight(true)
+          }
+        }
+        configure { project ->
+          project / 'definition' / 'scm' / 'extensions' << 'hudson.plugins.git.extensions.impl.SparseCheckoutPaths' {
+            sparseCheckoutPaths {
+              'hudson.plugins.git.extensions.impl.SparseCheckoutPath' {
+                path('frontend-service')
+              }
+            }
+          }
+        }
+      }
