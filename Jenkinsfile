@@ -10,7 +10,7 @@
 //
 //  Frontend flow:
 //    Version -> Install -> Lint -> Test & Coverage -> Build -> SonarQube -> Quality Gate
-//             -> Docker Build -> Smoke Test -> (optional) Publish image to Nexus Docker registry
+//             -> Docker Build -> Smoke Test
 //             -> Publish dist archive to Nexus (raw repo, release/snapshot like the backend)
 //
 //  Only components whose files changed are built (or all, via BUILD_ALL / Jenkinsfile change).
@@ -64,7 +64,7 @@ pipeline {
         booleanParam(name: 'ENFORCE_QUALITY_GATE', defaultValue: true,
             description: 'Fail a component if its SonarQube quality gate fails')
         booleanParam(name: 'DOCKER_BUILD', defaultValue: true,
-            description: 'Build Docker images for the backend services (the frontend always builds its image)')
+            description: 'Build Docker images for selected backend services; the frontend image is built when selected')
 
         // ---- release / versioning (backend + frontend) ----
         booleanParam(name: 'FORCE_RELEASE', defaultValue: false,
@@ -81,12 +81,6 @@ pipeline {
             description: 'Host used to reach the frontend smoke container')
         string(name: 'SMOKE_PORT', defaultValue: '4300',
             description: 'Host port for the frontend smoke container')
-        booleanParam(name: 'PUBLISH_FRONTEND_IMAGE', defaultValue: false,
-            description: 'Push the built frontend image to the local Nexus Docker registry')
-        string(name: 'NEXUS_DOCKER_REGISTRY', defaultValue: 'host.docker.internal:8087',
-            description: 'Nexus Docker connector as seen from Jenkins')
-        string(name: 'NEXUS_DOCKER_REPOSITORY', defaultValue: 'docker-hosted',
-            description: 'Nexus Docker hosted repository name')
         booleanParam(name: 'PUBLISH_FRONTEND_ARCHIVE', defaultValue: true,
             description: 'Publish the frontend dist archive (.tar.gz) to the Nexus raw repositories')
     }
@@ -222,6 +216,9 @@ List selectServices(List backends, String frontend,
     def selected = backends.findAll { svc ->
         changed.any { it.startsWith("${svc}/") }
     }
+    if (changed.any { it.startsWith("${frontend}/") }) {
+        selected << frontend
+    }
 
     // Shared backend files -> rebuild every backend.
     if (changed.any { f ->
@@ -230,9 +227,6 @@ List selectServices(List backends, String frontend,
         echo 'Shared backend files changed -> building all backend services'
         selected = backends
     }
-
-    // FRONTEND ALWAYS BUILDS.
-    selected = selected + [frontend]
 
     return selected
 }
@@ -413,9 +407,7 @@ void runFrontend(String svc) {
         "IMAGE_TAG=${env.BUILD_NUMBER}",
         "SONAR_HOST_URL=${params.FRONTEND_SONAR_HOST_URL}",
         "SMOKE_HOST=${params.SMOKE_HOST}",
-        "SMOKE_PORT=${params.SMOKE_PORT}",
-        "NEXUS_DOCKER_REGISTRY=${params.NEXUS_DOCKER_REGISTRY}",
-        "NEXUS_DOCKER_REPOSITORY=${params.NEXUS_DOCKER_REPOSITORY}"
+        "SMOKE_PORT=${params.SMOKE_PORT}"
     ]) {
         try {
             stage("${svc}: Version") {
@@ -574,31 +566,6 @@ void runFrontend(String svc) {
 
                         docker rm -f frontend-smoke >/dev/null
                     '''
-                }
-            }
-
-            if (params.PUBLISH_FRONTEND_IMAGE) {
-                stage("${svc}: Publish image to Nexus") {
-                    dir(svc) {
-                        withCredentials([usernamePassword(credentialsId: 'nexus-docker',
-                                                          usernameVariable: 'NEXUS_USER',
-                                                          passwordVariable: 'NEXUS_PASSWORD')]) {
-                            sh '''
-                                set -eu
-                                echo "$NEXUS_PASSWORD" | docker login "$NEXUS_DOCKER_REGISTRY" -u "$NEXUS_USER" --password-stdin
-
-                                TARGET="$NEXUS_DOCKER_REGISTRY/$NEXUS_DOCKER_REPOSITORY/${IMAGE_NAME}:${IMAGE_TAG}"
-                                docker tag "${IMAGE_NAME}:${IMAGE_TAG}" "$TARGET"
-                                docker push "$TARGET"
-
-                                LATEST="$NEXUS_DOCKER_REGISTRY/$NEXUS_DOCKER_REPOSITORY/${IMAGE_NAME}:latest"
-                                docker tag "${IMAGE_NAME}:${IMAGE_TAG}" "$LATEST"
-                                docker push "$LATEST"
-
-                                docker logout "$NEXUS_DOCKER_REGISTRY"
-                            '''
-                        }
-                    }
                 }
             }
 

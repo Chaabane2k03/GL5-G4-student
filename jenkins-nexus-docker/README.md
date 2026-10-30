@@ -12,10 +12,17 @@ Jenkins and Nexus communicate through the external Docker network
 The Jenkins jobs are grouped under the `service-pipelines` Jenkins folder.
 Each multibranch job scans only `main`, `develop`, and `feature/jenkins-nexus`,
 is triggered by GitHub push webhooks sent to the public Jenkins URL, and
-publishes Maven artifacts to:
+publishes artifacts to these Nexus repositories:
 
-- `gl5-student-snapshots`
-- `gl5-student-releases`
+- `gl5-student-snapshots` — Maven snapshots for backend services.
+- `gl5-student-releases` — Maven releases for backend services.
+- `gl5-frontend-snapshots` — RAW frontend archives with redeploy allowed.
+- `gl5-frontend-releases` — RAW frontend archives with redeploy disabled.
+
+The root `all-services` pipeline is the recommended job. It builds changed
+backend services and the frontend in parallel, then publishes backend Maven
+artifacts and the frontend `dist` archive. The frontend Docker image is built
+and smoke-tested locally for validation, but is not published to Nexus.
 
 ## Prerequisites
 
@@ -129,7 +136,7 @@ setup, then change the administrator password to the value you put in
 If Nexus was already initialized, `admin.password` may no longer exist. Use the
 current Nexus administrator password instead.
 
-## 5. Create the Maven repositories
+## 5. Create the Nexus repositories
 
 ### Option A: Nexus web interface
 
@@ -138,27 +145,44 @@ In Nexus:
 1. Select **Server administration and configuration**.
 2. Select **Repositories**.
 3. Click **Create repository**.
-4. Choose **maven2 (hosted)**.
-5. Create the snapshot repository with:
+4. Create the backend snapshot repository:
+   - **Recipe:** `maven2 (hosted)`
    - **Name:** `gl5-student-snapshots`
    - **Version policy:** `Snapshot`
    - **Layout policy:** `Strict`
    - **Deployment policy:** `Allow redeploy`
    - **Blob store:** `default`
-6. Create the release repository with:
+5. Create the backend release repository:
+   - **Recipe:** `maven2 (hosted)`
    - **Name:** `gl5-student-releases`
    - **Version policy:** `Release`
    - **Layout policy:** `Strict`
    - **Deployment policy:** `Disable redeploy`
    - **Blob store:** `default`
+6. Create the frontend snapshot repository:
+   - **Recipe:** `raw (hosted)`
+   - **Name:** `gl5-frontend-snapshots`
+   - **Deployment policy:** `Allow redeploy`
+   - **Blob store:** `default`
+7. Create the frontend release repository:
+   - **Recipe:** `raw (hosted)`
+   - **Name:** `gl5-frontend-releases`
+   - **Deployment policy:** `Disable redeploy`
+   - **Blob store:** `default`
 
-The repository names must match the service `ci.env` files exactly.`
+The repository names must match the defaults in the root `Jenkinsfile`.
+They can be overridden without editing the pipeline by setting
+`NEXUS_RELEASE_REPO_NAME`, `NEXUS_SNAPSHOT_REPO_NAME`,
+`NEXUS_FRONTEND_RELEASE_REPO_NAME`, or
+`NEXUS_FRONTEND_SNAPSHOT_REPO_NAME` in a service `ci.env` file.
 
 Verify the repository endpoints:
 
 ```powershell
 Invoke-WebRequest http://localhost:8081/repository/gl5-student-snapshots/
 Invoke-WebRequest http://localhost:8081/repository/gl5-student-releases/
+Invoke-WebRequest http://localhost:8081/repository/gl5-frontend-snapshots/
+Invoke-WebRequest http://localhost:8081/repository/gl5-frontend-releases/
 ```
 
 An HTTP `401` or `403` means authentication is required or the user lacks
@@ -210,12 +234,31 @@ Two job layouts are available:
   `course-service`, and `api-gateway` run the per-service Jenkinsfile of each
   folder.
 
-Both are created by default, so a push can build twice. Once `all-services` is
-trusted, set this in `.env` and recreate Jenkins:
+The per-service jobs are disabled by default (`PER_SERVICE_JOBS=false`), so the
+recommended setup has one build per push. If they are enabled, a push can
+build twice. To enable them for troubleshooting or independent service builds,
+set this in `.env` and recreate Jenkins:
 
 ```dotenv
-PER_SERVICE_JOBS=false
+PER_SERVICE_JOBS=true
 ```
+
+### Branch publication rules
+
+The root pipeline uses `main` as the release branch:
+
+| Branch/build | Backend artifact | Frontend archive |
+|---|---|---|
+| `main` | `gl5-student-releases`, version `1.0.<build>` | `gl5-frontend-releases`, version `1.0.<build>` |
+| `develop` or another non-release branch | `gl5-student-snapshots`, version `1.0.<build>-SNAPSHOT` | `gl5-frontend-snapshots`, version `1.0.<build>-SNAPSHOT` |
+| Any branch with `FORCE_RELEASE=true` | Release repository | Release repository |
+
+`OVERRIDE_VERSION` replaces the generated version. A frontend archive is
+published by default; `PUBLISH_FRONTEND_ARCHIVE=false` disables that step.
+The archive is uploaded to the RAW hosted repository selected by the branch:
+`gl5-frontend-releases` for release builds and `gl5-frontend-snapshots` for
+non-release builds. Frontend and backend Docker images are built for
+validation but are not pushed by the root pipeline.
 
 ## 7. Configure the GitHub credential and webhook
 
@@ -427,10 +470,17 @@ docker exec gl5-jenkins sh -c "curl -fsS http://nexus-igl5:8081/service/rest/v1/
 
 The Nexus response should report a healthy status. Then open the
 `service-pipelines` folder, select a branch under one of the multibranch jobs,
-and run it with **Build Now**. The Maven publish stage should use URLs such as:
+and run it with **Build Now**. Backend Maven publication should use URLs such
+as:
 
 ```text
 http://nexus-igl5:8081/repository/gl5-student-snapshots/
+```
+
+The frontend archive publication uses the corresponding RAW repository:
+
+```text
+http://nexus-igl5:8081/repository/gl5-frontend-snapshots/
 ```
 
 ## 10. Stop, restart, and reset
@@ -448,8 +498,8 @@ docker compose -f docker-compose.nexus.yml up -d
 docker compose -f docker-compose.jenkins.yml up -d --build
 ```
 
-After Nexus initializes, recreate the two Maven repositories by following
-[step 5](#5-create-the-maven-repositories), then run the webhook helper.
+After Nexus initializes, recreate the four repositories by following
+[step 5](#5-create-the-nexus-repositories), then run the webhook helper.
 
 Stop Jenkins without stopping Nexus:
 
