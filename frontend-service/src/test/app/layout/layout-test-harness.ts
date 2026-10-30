@@ -33,7 +33,7 @@ export function configureLayoutTestBed(): void {
       provideHttpClient(),
       provideHttpClientTesting(),
       { provide: AuthService, useValue: authService },
-      { provide: ConfigService, useValue: { apiBaseUrl: 'http://test', keycloak: {} } },
+      { provide: ConfigService, useValue: { apiBaseUrl: 'https://test', keycloak: {} } },
       { provide: DepartmentApi, useValue: { getAll: () => of([]) } },
       { provide: CourseApi, useValue: { getAllCatalog: () => of([]) } },
       { provide: StudentApi, useValue: { getAll: () => of([]) } },
