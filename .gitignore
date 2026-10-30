@@ -1,0 +1,48 @@
+# Compiled class files
+*.class
+
+# Compiled JAR archives
+*.jar
+*.war
+*.ear
+*.zip
+
+# Maven
+target/
+.m2/
+!.mvn/wrapper/maven-wrapper.jar
+!**/src/main/**/target/
+!**/src/test/**/target/
+
+# Gradle
+.gradle/
+build/
+
+# Logs
+logs/
+*.log
+
+# IDEs
+.idea/
+*.iml
+*.ipr
+*.iws
+.vscode/
+.classpath
+.project
+.settings/
+nbproject/
+*.swp
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Env / secrets
+.env
+!.env.example
+.m2
+
+# Local Jenkins home at the repository root (service-level jenkins/casc.yaml files are tracked)
+/jenkins/
+deploy/helm/umbrella/gl5-student/charts/*.tgz

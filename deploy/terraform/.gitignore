@@ -1,0 +1,8 @@
+# Terraform state files
+*.tfstate
+*.tfstate.*
+crash.log
+# credentials / sensitive plan files
+*.tfvars
+!*.tfvars.example
+.terraform/

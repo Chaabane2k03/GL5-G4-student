@@ -1,0 +1,248 @@
+pipeline {
+    agent any
+
+    tools {
+        jdk 'JDK17'
+        maven 'Maven3'
+    }
+
+    options {
+        timestamps()
+        disableConcurrentBuilds()
+    }
+
+    parameters {
+        booleanParam(
+            name: 'FORCE_RELEASE',
+            defaultValue: false,
+            description: 'Force release deployment to Nexus regardless of git branch'
+        )
+        string(
+            name: 'OVERRIDE_VERSION',
+            defaultValue: '',
+            description: 'Optional manual version override (e.g. 1.2.0)'
+        )
+    }
+
+    stages {
+        stage('Checkout') {
+            steps {
+                checkout scm
+            }
+        }
+
+        // Build and test ONCE: the jar produced here is reused by Docker and Nexus.
+        stage('Build & Test') {
+            steps {
+                dir('enrollment-service') {
+                    sh 'mvn -B clean verify'
+                }
+            }
+            post {
+                always {
+                    junit(
+                        allowEmptyResults: true,
+                        testResults: 'enrollment-service/target/surefire-reports/TEST-*.xml'
+                    )
+                }
+            }
+        }
+
+        // Run SonarQube analysis and container packaging in parallel
+        stage('Analysis & Packaging') {
+            parallel {
+                stage('SonarQube Analysis') {
+                    steps {
+                        withSonarQubeEnv('SonarQube') {
+                            dir('enrollment-service') {
+                                sh '''
+                                    [ -f ci.env ] && set -a && . ./ci.env && set +a
+                                    [ -f .env.local ] && set -a && . ./.env.local && set +a
+                                    [ -f .env ] && set -a && . ./.env && set +a
+
+                                    PKEY="${SONAR_PROJECT_KEY:-enrollment-service}"
+                                    PNAME="${SONAR_PROJECT_NAME:-Enrollment Service}"
+
+                                    mvn -B org.sonarsource.scanner.maven:sonar-maven-plugin:sonar \
+                                      -Dsonar.projectKey="${PKEY}" \
+                                      -Dsonar.projectName="${PNAME}"
+                                '''
+                            }
+                        }
+                    }
+                }
+
+                // Uses the pre-built jar from Build & Test via Dockerfile.ci for fast packaging
+                stage('Docker Build') {
+                    steps {
+                        catchError(buildResult: 'SUCCESS', stageResult: 'UNSTABLE') {
+                            dir('enrollment-service') {
+                                sh '''
+                                    [ -f ci.env ] && set -a && . ./ci.env && set +a
+                                    [ -f .env.local ] && set -a && . ./.env.local && set +a
+                                    [ -f .env ] && set -a && . ./.env && set +a
+
+                                    if [ "${ENABLE_DOCKER_BUILD:-true}" = "false" ]; then
+                                        echo "ENABLE_DOCKER_BUILD is false; skipping Docker packaging."
+                                        exit 0
+                                    fi
+
+                                    if ! docker info >/dev/null 2>&1; then
+                                        echo "=================================================================="
+                                        echo "WARNING: Cannot connect to Docker daemon at unix:///var/run/docker.sock"
+                                        echo "The Jenkins user does not have permission to access the Docker socket."
+                                        echo ""
+                                        echo "Quick fix on host:   sudo chmod 666 /var/run/docker.sock"
+                                        echo "Permanent fix:       sudo usermod -aG docker jenkins && sudo systemctl restart jenkins"
+                                        echo ""
+                                        echo "Skipping Docker image packaging without failing the build."
+                                        echo "=================================================================="
+                                        exit 1
+                                    fi
+
+                                    if ! ls target/*.jar 2>/dev/null | grep -q .; then
+                                        echo "ERROR: No JAR found in target/ — skipping Docker build." >&2
+                                        exit 1
+                                    fi
+
+                                    IMG_NAME="${DOCKER_IMAGE_NAME:-enrollment-service}"
+                                    if [ -f Dockerfile.ci ]; then
+                                        docker build -f Dockerfile.ci \
+                                          -t "${IMG_NAME}:${BUILD_NUMBER}" \
+                                          -t "${IMG_NAME}:latest" .
+                                    else
+                                        docker build \
+                                          -t "${IMG_NAME}:${BUILD_NUMBER}" \
+                                          -t "${IMG_NAME}:latest" .
+                                    fi
+                                '''
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Publish to Nexus: Release if pushed to main (or FORCE_RELEASE=true), otherwise Snapshot.
+        stage('Publish to Nexus') {
+            steps {
+                withCredentials([
+                    usernamePassword(
+                        credentialsId: 'nexus',
+                        usernameVariable: 'NEXUS_USER',
+                        passwordVariable: 'NEXUS_PASS'
+                    )
+                ]) {
+                    dir('enrollment-service') {
+                        sh '''
+                            set +x
+                            trap 'rm -f settings.xml' EXIT
+
+                            [ -f ci.env ] && set -a && . ./ci.env && set +a
+                            [ -f .env.local ] && set -a && . ./.env.local && set +a
+                            [ -f .env ] && set -a && . ./.env && set +a
+
+                            NEXUS_BASE="${NEXUS_BASE_URL:-http://host.docker.internal:8081}"
+                            RELEASE_REPO="${NEXUS_RELEASE_REPO_NAME:-gl5-student-releases}"
+                            SNAPSHOT_REPO="${NEXUS_SNAPSHOT_REPO_NAME:-gl5-student-snapshots}"
+                            RELEASE_ID="${NEXUS_RELEASE_REPO_ID:-nexus-releases}"
+                            SNAPSHOT_ID="${NEXUS_SNAPSHOT_REPO_ID:-nexus-snapshots}"
+                            TARGET_RELEASE_BRANCH="${RELEASE_BRANCH:-main}"
+
+                            RELEASE_URL="${NEXUS_BASE}/repository/${RELEASE_REPO}/"
+                            SNAPSHOT_URL="${NEXUS_BASE}/repository/${SNAPSHOT_REPO}/"
+
+                            cat > settings.xml <<EOF
+<settings>
+  <servers>
+    <server>
+      <id>${SNAPSHOT_ID}</id>
+      <username>${NEXUS_USER}</username>
+      <password>${NEXUS_PASS}</password>
+    </server>
+    <server>
+      <id>${RELEASE_ID}</id>
+      <username>${NEXUS_USER}</username>
+      <password>${NEXUS_PASS}</password>
+    </server>
+  </servers>
+</settings>
+EOF
+
+                            GIT_BRANCH_NAME="${BRANCH_NAME:-${GIT_BRANCH:-}}"
+                            CURRENT_BRANCH=$(echo "${GIT_BRANCH_NAME}" | sed 's|^origin/||')
+                            echo "Detected branch: '${CURRENT_BRANCH}' (Configured release branch: '${TARGET_RELEASE_BRANCH}')"
+
+                            if [ -n "${OVERRIDE_VERSION:-}" ]; then
+                                TARGET_VERSION="${OVERRIDE_VERSION}"
+                                echo "Using manual override version: ${TARGET_VERSION}"
+                            else
+                                CURRENT_POM_VERSION=$(mvn -B help:evaluate -Dexpression=project.version -q -DforceStdout 2>/dev/null | grep -F -v "[" | tail -n 1)
+                                BASE_VERSION=$(echo "${CURRENT_POM_VERSION}" | sed -E 's/-SNAPSHOT$//')
+                                VERSION_ROOT="${VERSION_PREFIX:-$BASE_VERSION}"
+
+                                if [ "${CURRENT_BRANCH}" = "${TARGET_RELEASE_BRANCH}" ] || [ "${FORCE_RELEASE}" = "true" ]; then
+                                    TARGET_VERSION="${VERSION_ROOT}.${BUILD_NUMBER}"
+                                else
+                                    TARGET_VERSION="${VERSION_ROOT}.${BUILD_NUMBER}-SNAPSHOT"
+                                fi
+                            fi
+
+                            mvn -B versions:set \
+                              -DnewVersion="${TARGET_VERSION}" \
+                              -DgenerateBackupPoms=false
+
+                            if [ "${CURRENT_BRANCH}" = "${TARGET_RELEASE_BRANCH}" ] || [ "${FORCE_RELEASE}" = "true" ]; then
+                                echo "=========================================================="
+                                echo "Publishing RELEASE version ${TARGET_VERSION} to ${RELEASE_ID} (${RELEASE_URL})"
+                                echo "=========================================================="
+                                mvn -B -s settings.xml deploy \
+                                  -DskipTests \
+                                  -DaltReleaseDeploymentRepository="${RELEASE_ID}::default::${RELEASE_URL}" \
+                                  -Dnexus.url="${NEXUS_BASE}" \
+                                  -Dnexus.release.repo="${RELEASE_REPO}"
+                            else
+                                echo "=========================================================="
+                                echo "Publishing SNAPSHOT version ${TARGET_VERSION} to ${SNAPSHOT_ID} (${SNAPSHOT_URL})"
+                                echo "=========================================================="
+                                mvn -B -s settings.xml deploy \
+                                  -DskipTests \
+                                  -DaltSnapshotDeploymentRepository="${SNAPSHOT_ID}::default::${SNAPSHOT_URL}" \
+                                  -Dnexus.url="${NEXUS_BASE}" \
+                                  -Dnexus.snapshot.repo="${SNAPSHOT_REPO}"
+                            fi
+                        '''
+                    }
+                }
+            }
+        }
+
+    }
+
+    post {
+        success {
+            echo 'Pipeline for enrollment-service succeeded'
+        }
+        failure {
+            echo 'Pipeline for enrollment-service failed'
+        }
+        always {
+            emailext(
+                to: 'chaabaneboussadia@gmail.com',
+                subject: "${env.JOB_NAME} - Build #${env.BUILD_NUMBER} - ${currentBuild.currentResult}",
+                mimeType: 'text/html',
+                body: """
+                    <h2>Jenkins Build Report</h2>
+                    <p><b>Service:</b> enrollment-service</p>
+                    <p><b>Job:</b> ${env.JOB_NAME}</p>
+                    <p><b>Build Number:</b> ${env.BUILD_NUMBER}</p>
+                    <p><b>Status:</b> ${currentBuild.currentResult}</p>
+                    <p><b>Build URL:</b>
+                    <a href="${env.BUILD_URL}">Open build details</a></p>
+                    <p><b>Console Output:</b>
+                    <a href="${env.BUILD_URL}console">View console output</a></p>
+                """
+            )
+        }
+    }
+}

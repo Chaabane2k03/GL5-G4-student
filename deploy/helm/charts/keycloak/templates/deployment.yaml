@@ -1,0 +1,132 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "keycloak.fullname" . }}
+  labels:
+    {{- include "keycloak.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "keycloak.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        checksum/realm: {{ include (print $.Template.BasePath "/secret.yaml") . | sha256sum }}
+      labels:
+        {{- include "keycloak.selectorLabels" . | nindent 8 }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      # Keycloak needs a fairly large writable /tmp.
+      securityContext:
+        fsGroup: 1000
+      terminationGracePeriodSeconds: 30
+      containers:
+        - name: keycloak
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args:
+            - start
+            - --import-realm
+          env:
+            # Keycloak 26 replaced KEYCLOAK_ADMIN / KEYCLOAK_ADMIN_PASSWORD by
+            # the KC_BOOTSTRAP_ADMIN_* options (the old names are ignored).
+            - name: KC_BOOTSTRAP_ADMIN_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "keycloak.secretName" . }}
+                  key: admin-user
+            - name: KC_BOOTSTRAP_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "keycloak.secretName" . }}
+                  key: admin-password
+            - name: KC_DB
+              value: {{ .Values.db.vendor | quote }}
+            - name: KC_HTTP_ENABLED
+              value: "true"
+            - name: KC_HTTP_PORT
+              value: "8080"
+            - name: KC_HEALTH_ENABLED
+              value: "true"
+            - name: KC_METRICS_ENABLED
+              value: "true"
+            # The hostname Keycloak publishes in the `iss` claim. It has to be
+            # the issuer the API Gateway is configured with, otherwise the
+            # tokens are rejected. The path (/auth) is the public context path:
+            # the frontend Nginx strips it before forwarding to Keycloak, which
+            # is Keycloak's supported "hostname includes the proxy context
+            # path" reverse-proxy setup.
+            - name: KC_HOSTNAME
+              value: {{ .Values.hostname | quote }}
+            # Accept X-Forwarded-* from the frontend Nginx (real client IP,
+            # scheme and host). The deprecated hostname/hostname-strict options
+            # of Keycloak 25 no longer exist in 26, so they must not be set.
+            - name: KC_PROXY_HEADERS
+              value: "xforwarded"
+            - name: JAVA_OPTS
+              value: {{ .Values.javaOpts | quote }}
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+            - name: management
+              containerPort: 9000
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /health/ready
+              port: management
+            initialDelaySeconds: 60
+            periodSeconds: 15
+            timeoutSeconds: 5
+            failureThreshold: 6
+          readinessProbe:
+            httpGet:
+              path: /health/ready
+              port: management
+            initialDelaySeconds: 20
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 10
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            - name: data
+              mountPath: /opt/keycloak/data
+            - name: realm
+              mountPath: /opt/keycloak/data/import
+              readOnly: true
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        # The database of Keycloak is kept in a volume. On a development
+        # cluster the persistence can be disabled: the realm is then
+        # re-imported on every start, which keeps the demo reproducible.
+        - name: data
+          {{- if .Values.persistence.enabled }}
+          persistentVolumeClaim:
+            claimName: {{ include "keycloak.fullname" . }}-data
+          {{- else }}
+          emptyDir: {}
+          {{- end }}
+        - name: realm
+          configMap:
+            name: {{ include "keycloak.fullname" . }}-realm
+        - name: tmp
+          emptyDir: {}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

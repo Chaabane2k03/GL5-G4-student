@@ -1,0 +1,57 @@
+# Standalone Jenkins controller for the course-service pipeline.
+#   docker compose -f docker-compose.jenkins.yml up -d --build
+# UI: http://localhost:${JENKINS_PORT:-8090}  (login admin / admin, override with
+# JENKINS_ADMIN_USER / JENKINS_ADMIN_PASSWORD)
+#
+# It reaches the SonarQube stack started by docker-compose.sonar.yml through
+# host.docker.internal:9000 and builds images with the host Docker daemon
+# (the socket is mounted below).
+name: course-jenkins
+
+services:
+  jenkins:
+    build:
+      context: .
+      dockerfile: Dockerfile.jenkins
+    image: ${JENKINS_IMAGE:-course-jenkins:latest}
+    container_name: ${JENKINS_CONTAINER_NAME:-course-jenkins}
+    # Runs as root so the bind-mounted Docker socket and the freshly created
+    # Maven cache volume are writable without extra group plumbing (local CI only).
+    user: root
+    env_file:
+      - .env
+    environment:
+      HOME: /var/jenkins_home
+      CASC_JENKINS_CONFIG: /var/jenkins_home/casc_configs
+      CASC_JENKINS_CONFIG_WATCH: "true"
+      SONAR_TOKEN: ${SONAR_TOKEN}
+      JAVA_OPTS: "-Djenkins.install.runSetupWizard=false"
+      # Login for the local Jenkins UI (see jenkins/casc.yaml).
+      JENKINS_ADMIN_USER: ${JENKINS_ADMIN_USER:-admin}
+      JENKINS_ADMIN_PASSWORD: ${JENKINS_ADMIN_PASSWORD:-admin}
+      # SonarQube user token injected into the "sonar-token" Jenkins credential
+      # (jenkins/casc.yaml). Generate it manually in SonarQube (My Account >
+      # Security) and store it in course-service/.env as SONAR_TOKEN.
+      JENKINS_EXTERNAL_URL: ${JENKINS_EXTERNAL_URL:-http://localhost:8090/}
+      # Docker-outside-of-Docker: pipelines use the mounted host socket, and
+      # Testcontainers must reach the containers it starts via the host gateway.
+      DOCKER_HOST: unix:///var/run/docker.sock
+      TESTCONTAINERS_HOST_OVERRIDE: host.docker.internal
+      TESTCONTAINERS_RYUK_DISABLED: "true"
+      # Keep the Maven cache on the mounted volume (JVM user.home is /root here).
+      MAVEN_OPTS: -Dmaven.repo.local=/var/jenkins_home/.m2/repository
+    ports:
+      - "${JENKINS_PORT:-8090}:8080"
+      - "${JENKINS_AGENT_PORT:-50000}:50000"
+    volumes:
+      - jenkins-home:/var/jenkins_home
+      - maven-repo:/var/jenkins_home/.m2
+      - ./jenkins/casc.yaml:/var/jenkins_home/casc_configs/casc.yaml:ro
+      - /var/run/docker.sock:/var/run/docker.sock
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
+
+volumes:
+  jenkins-home:
+  maven-repo:

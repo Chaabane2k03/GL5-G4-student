@@ -1,0 +1,66 @@
+name: frontend-jenkins
+
+services:
+  jenkins:
+    build:
+      context: .
+      dockerfile: Dockerfile.jenkins
+    image: ${JENKINS_IMAGE:-frontend-jenkins:latest}
+    container_name: ${JENKINS_CONTAINER_NAME:-frontend-jenkins}
+    user: root
+    env_file:
+      - .env
+    environment:
+      HOME: /var/jenkins_home
+      CASC_JENKINS_CONFIG: /var/jenkins_home/casc_configs
+      CASC_JENKINS_CONFIG_WATCH: "true"
+      SONAR_TOKEN: ${SONAR_TOKEN}
+      JAVA_OPTS: ${JAVA_OPTS:--Djenkins.install.runSetupWizard=false}
+      JENKINS_ADMIN_USER: ${JENKINS_ADMIN_USER:-admin}
+      JENKINS_ADMIN_PASSWORD: ${JENKINS_ADMIN_PASSWORD:-admin}
+      JENKINS_EXTERNAL_URL: ${JENKINS_EXTERNAL_URL:-http://localhost:8096/}
+      NEXUS_ADMIN_USER: ${NEXUS_ADMIN_USER:-admin}
+      NEXUS_ADMIN_PASSWORD: ${NEXUS_ADMIN_PASSWORD:-admin123}
+      DOCKER_HOST: unix:///var/run/docker.sock
+      CHROME_BIN: /usr/bin/chromium
+      NODE_OPTIONS: --max-old-space-size=4096
+    ports:
+      - "${JENKINS_PORT:-8096}:8080"
+    volumes:
+      - jenkins-home:/var/jenkins_home
+      - ./jenkins/casc.yaml:/var/jenkins_home/casc_configs/casc.yaml:ro
+      - /var/run/docker.sock:/var/run/docker.sock
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
+
+  nexus:
+    image: ${NEXUS_IMAGE:-sonatype/nexus3:3.77.1}
+    container_name: ${NEXUS_CONTAINER_NAME:-frontend-nexus}
+    environment:
+      INSTALL4J_ADD_VM_PARAMS: "-Xms512m -Xmx1024m -XX:MaxDirectMemorySize=1024m -Dnexus.security.randompassword=false"
+    ports:
+      - "${NEXUS_UI_PORT:-8086}:8081"
+      - "${NEXUS_DOCKER_PORT:-8087}:8087"
+    volumes:
+      - nexus-data:/nexus-data
+    restart: unless-stopped
+
+  nexus-setup:
+    image: ${NEXUS_SETUP_IMAGE:-curlimages/curl:8.10.1}
+    container_name: ${NEXUS_SETUP_CONTAINER_NAME:-frontend-nexus-setup}
+    depends_on:
+      - nexus
+    environment:
+      NEXUS_URL: http://nexus:8081
+      NEXUS_USER: ${NEXUS_ADMIN_USER:-admin}
+      NEXUS_PASSWORD: ${NEXUS_ADMIN_PASSWORD:-admin123}
+      NEXUS_DOCKER_REPOSITORY: ${NEXUS_DOCKER_REPOSITORY:-docker-hosted}
+    volumes:
+      - ./scripts/setup-nexus.sh:/setup-nexus.sh:ro
+    entrypoint: ["sh", "/setup-nexus.sh"]
+    restart: "no"
+
+volumes:
+  jenkins-home:
+  nexus-data:

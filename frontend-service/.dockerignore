@@ -1,0 +1,17 @@
+node_modules
+dist
+.angular
+coverage
+.git
+.gitignore
+.vscode
+.idea
+.env
+.env.*
+.env.example
+README.md
+keycloak
+scripts
+docker-compose.yml
+docker-compose.*.yml
+npm-debug.log

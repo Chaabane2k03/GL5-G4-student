@@ -1,0 +1,37 @@
+services:
+  mysql:
+    image: mysql:8.4
+    environment:
+      MYSQL_DATABASE: departmentdb
+      MYSQL_USER: department
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-department-dev-password}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-department-root-dev-password}
+    ports:
+      - "3310:3306"
+    volumes:
+      - department-mysql-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -udepartment -p\"$$MYSQL_PASSWORD\" --silent"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 20s
+
+  department-service:
+    image: ${DOCKER_IMAGE:-gl5-g4-department-service}:${BUILD_NUMBER:-local}
+    build:
+      context: ..
+      dockerfile: department-service/Dockerfile
+    depends_on:
+      mysql:
+        condition: service_healthy
+    environment:
+      SERVER_PORT: 8082
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/departmentdb?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC
+      SPRING_DATASOURCE_USERNAME: department
+      SPRING_DATASOURCE_PASSWORD: ${MYSQL_PASSWORD:-department-dev-password}
+    ports:
+      - "8082:8082"
+
+volumes:
+  department-mysql-data:
