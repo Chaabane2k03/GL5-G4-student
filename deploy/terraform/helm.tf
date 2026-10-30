@@ -56,24 +56,9 @@ resource "random_password" "grafana" {
   special = false
 }
 
-# The umbrella chart uses file:// dependencies that must be packaged before
-# the release. Hash every chart source file (not only Chart.yaml) so a change
-# to a template/realm also repackages the dependencies. Generated archives and
-# Chart.lock are excluded, otherwise `helm dependency update` would retrigger
-# itself forever.
-resource "null_resource" "helm_deps" {
-  triggers = {
-    chart_hash = sha256(join("", [
-      for f in fileset("${path.module}/../helm", "**") :
-      filesha256("${path.module}/../helm/${f}")
-      if !can(regex("\\.tgz$", f)) && f != "umbrella/gl5-student/Chart.lock"
-    ]))
-  }
-
-  provisioner "local-exec" {
-    command = "helm dependency update ${path.module}/../helm/umbrella/gl5-student"
-  }
-}
+# The umbrella chart uses file:// dependencies (frontend, keycloak,
+# microservice, mysql) whose .tgz archives are git-ignored. They are packaged
+# by `dependency_update = true` on helm_release.gl5_student below.
 
 # --- AWS Load Balancer Controller ------------------------------------------
 # No IRSA in the lab (no role creation allowed): the controller pods fall
@@ -180,6 +165,14 @@ resource "helm_release" "gl5_student" {
   create_namespace = true
   timeout          = 900
 
+  # Package the umbrella chart's file:// dependencies (charts/*.tgz, which are
+  # git-ignored) before Helm loads it. The Helm provider loads/validates the
+  # chart during PLAN, so a plan-time `helm dependency update` is required:
+  # without it a fresh checkout fails with "Found in Chart.yaml, but missing in
+  # charts/ directory". This also replaces the old null_resource: dependencies
+  # are refreshed on every plan, so sub-chart edits are always picked up.
+  dependency_update = true
+
   # Set to true to make terraform apply block until every pod is Ready.
   # Keep false while the ECR images are not yet pushed (pods show
   # ImagePullBackOff until they are, then recover on their own).
@@ -196,7 +189,6 @@ resource "helm_release" "gl5_student" {
   ]
 
   depends_on = [
-    null_resource.helm_deps,
     helm_release.aws_lb_controller,
     helm_release.kube_prometheus_stack,
     aws_db_instance.gl5,

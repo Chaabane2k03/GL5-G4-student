@@ -89,7 +89,7 @@ Terraform provisions the foundational AWS infrastructure (VPC, EKS Cluster, Node
 
 ```text
 deploy/terraform/
-├── versions.tf      # Required providers (aws, helm, kubernetes, random, null) & backend
+├── versions.tf      # Required providers (aws, helm, kubernetes, random) & backend
 ├── variables.tf     # Lab-tuned defaults (t3.large, db.t3.micro, us-east-1, standard support K8s)
 ├── main.tf          # AWS identity & pre-created LabRole data lookup
 ├── vpc.tf           # VPC + 2 public subnets (budget-friendly: zero NAT Gateway costs)
@@ -162,6 +162,14 @@ terraform init
 ```
 
 > [!NOTE]
+> The umbrella chart (`deploy/helm/umbrella/gl5-student`) declares `file://`
+> sub-chart dependencies whose `.tgz` archives are git-ignored. Terraform
+> packages them automatically (`dependency_update = true` on
+> `helm_release.gl5_student`, which runs `helm dependency update` at plan
+> time), so no manual `helm dependency update` is needed before
+> `terraform plan`/`apply`. Running it manually is still fine and does not
+> change the plan.
+>
 > The default configuration uses `us-east-1`, node instance type `t3.large`, RDS instance `db.t3.micro`, and Kubernetes version `1.36`. Ensure your chosen Kubernetes version is under **standard support** to avoid an additional `$0.60/hour` control plane surcharge for extended support.
 
 ---
