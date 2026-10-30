@@ -73,7 +73,7 @@ pipeline {
             description: 'Optional manual version override for all components (e.g. 1.2.0)')
 
         // ---- frontend ----
-        string(name: 'FRONTEND_IMAGE_NAME', defaultValue: 'gl5-g4-frontend-service',
+        string(name: 'FRONTEND_IMAGE_NAME', defaultValue: 'frontend-service',
             description: 'Frontend Docker image repository name')
         string(name: 'FRONTEND_SONAR_HOST_URL', defaultValue: 'http://host.docker.internal:9000',
             description: 'SonarQube URL as seen from this controller (used by the frontend scanner)')
@@ -81,8 +81,6 @@ pipeline {
             description: 'Host used to reach the frontend smoke container')
         string(name: 'SMOKE_PORT', defaultValue: '4300',
             description: 'Host port for the frontend smoke container')
-        booleanParam(name: 'PUBLISH_FRONTEND_ARCHIVE', defaultValue: true,
-            description: 'Publish the frontend dist archive (.tar.gz) to the Nexus raw repositories')
     }
 
     stages {
@@ -569,10 +567,8 @@ void runFrontend(String svc) {
                 }
             }
 
-            if (params.PUBLISH_FRONTEND_ARCHIVE) {
-                stage("${svc}: Publish to Nexus") {
-                    publishFrontendToNexus(svc, version)
-                }
+            stage("${svc}: Publish to Nexus") {
+                publishFrontendToNexus(svc, version)
             }
             serviceResults[svc] = 'SUCCESS'
         } catch (err) {

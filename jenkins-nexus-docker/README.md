@@ -254,7 +254,7 @@ The root pipeline uses `main` as the release branch:
 | Any branch with `FORCE_RELEASE=true` | Release repository | Release repository |
 
 `OVERRIDE_VERSION` replaces the generated version. A frontend archive is
-published by default; `PUBLISH_FRONTEND_ARCHIVE=false` disables that step.
+published for every frontend pipeline run.
 The archive is uploaded to the RAW hosted repository selected by the branch:
 `gl5-frontend-releases` for release builds and `gl5-frontend-snapshots` for
 non-release builds. Frontend and backend Docker images are built for
