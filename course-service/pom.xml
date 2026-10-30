@@ -10,7 +10,7 @@
         <relativePath/> <!-- lookup parent from repository -->
     </parent>
 
-    <groupId>com.eduplatform</groupId>
+    <groupId>tn.fst</groupId>
     <artifactId>course-service</artifactId>
     <version>0.0.1-SNAPSHOT</version>
     <name>course-service</name>
@@ -19,6 +19,9 @@
     <properties>
         <java.version>17</java.version>
         <spring-cloud.version>2025.0.3</spring-cloud.version>
+        <nexus.url>http://host.docker.internal:8081</nexus.url>
+        <nexus.release.repo>gl5-student-releases</nexus.release.repo>
+        <nexus.snapshot.repo>gl5-student-snapshots</nexus.snapshot.repo>
         <springdoc.version>2.9.1</springdoc.version>
 
         <!-- Coverage thresholds enforced by the JaCoCo check. Overridable, e.g. -Djacoco.line.min=0.95 -->
@@ -228,14 +231,14 @@
                         <configuration>
                             <testPlugin>junit5</testPlugin>
                             <targetClasses>
-                                <param>com.eduplatform.course.*</param>
+                                <param>tn.fst.course.*</param>
                             </targetClasses>
                             <targetTests>
-                                <param>com.eduplatform.course.*</param>
+                                <param>tn.fst.course.*</param>
                             </targetTests>
                             <excludedClasses>
-                                <param>com.eduplatform.course.CourseServiceApplication</param>
-                                <param>com.eduplatform.course.config.*</param>
+                                <param>tn.fst.course.CourseServiceApplication</param>
+                                <param>tn.fst.course.config.*</param>
                             </excludedClasses>
                             <outputFormats>
                                 <param>HTML</param>
@@ -248,5 +251,16 @@
             </build>
         </profile>
     </profiles>
+
+    <distributionManagement>
+        <snapshotRepository>
+            <id>nexus-snapshots</id>
+            <url>${nexus.url}/repository/${nexus.snapshot.repo}/</url>
+        </snapshotRepository>
+        <repository>
+            <id>nexus-releases</id>
+            <url>${nexus.url}/repository/${nexus.release.repo}/</url>
+        </repository>
+    </distributionManagement>
 
 </project>

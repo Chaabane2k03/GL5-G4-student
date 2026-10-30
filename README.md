@@ -331,8 +331,9 @@ docker compose -f docker-compose.sonar.yml down -v
 > Don't run both — they both publish port 9000. Use the root compose file to analyse
 > every service from a single SonarQube instance.
 
-> For the five per-service Jenkins controllers (ports 8091–8095, Job DSL jobs and
-> Sonar webhooks), see [JENKINS.md](JENKINS.md).
+> For the shared Jenkins controller (Jenkins, Nexus, Job DSL jobs and Sonar
+> webhooks), see [JENKINS.md](JENKINS.md). For the single pipeline that builds all
+> services, see [PIPELINE.md](PIPELINE.md).
 
 **One-time setup:** open `http://localhost:9000` (first login `admin` / `admin`; a password
 change is forced), then **My Account → Security → Generate Token**. Export the token:

@@ -255,8 +255,9 @@ a quality gate):
    `new_violations > 0`, `new_coverage < 90`, `new_duplicated_lines_density > 3`
    (leave "All new Security Hotspots reviewed" out), then **Set as Default**
    (or assign the gate to the `course-service` project).
-4. Put the token in `course-service/.env` as `SONAR_TOKEN=<token>` — the Jenkins controller
-   injects it as the `sonar-token` credential (see `.env.example`).
+4. Put the token in `jenkin-docker/.env` as `SONAR_TOKEN=<token>` — the shared Jenkins
+   controller injects it as the `sonar-token` credential (see
+   [`jenkin-docker/.env.example`](../jenkin-docker/.env.example)).
 
 ## 9. CI (Jenkins)
 
@@ -266,18 +267,19 @@ smoke test starts the service from the image just built and fails the build if i
 `UP` on `/actuator/health`.
 
 The scanner authenticates with the `sonar-token` Jenkins credential (a plain string sourced
-from the `SONAR_TOKEN` environment variable, wired by `jenkins/casc.yaml`); no SonarQube server
-entry is registered and no webhook is used. SonarQube 26.10 rejects webhook targets that
-resolve to site-local addresses such as `host.docker.internal`, so the pipeline instead polls
-the web API for the verdict: it reads the `ceTaskId` from `target/sonar/report-task.txt`, waits
+from the `SONAR_TOKEN` environment variable, wired by
+[`jenkin-docker/casc.yaml`](../jenkin-docker/casc.yaml)). The shared Compose setup registers
+one controller webhook for the pipelines that use `waitForQualityGate`; this pipeline still
+polls the web API for its verdict because SonarQube 26.10 rejects webhook targets that
+resolve to site-local addresses such as `host.docker.internal`. It reads the `ceTaskId` from `target/sonar/report-task.txt`, waits
 for `/api/ce/task` to reach `SUCCESS`, then evaluates `/api/qualitygates/project_status`
 (`OK`/`WARN` pass, anything else fails the build). `jq` is required by that stage and is baked
-into the controller image (`Dockerfile.jenkins`).
+into the shared controller image ([`jenkin-docker/Dockerfile.jenkins`](../jenkin-docker/Dockerfile.jenkins)).
 
 It expects a JDK tool named `jdk17`, a Maven tool named `maven-3.9` (both declared in
-`jenkins/casc.yaml`) and the `sonar-token` credential; everything else is overridable
+[`jenkin-docker/casc.yaml`](../jenkin-docker/casc.yaml)) and the `sonar-token` credential; everything else is overridable
 through *Build with Parameters*. The Jenkins controller used for this pipeline is described by
-`docker-compose.jenkins.yml` and configured by `jenkins/casc.yaml`.
+[`jenkin-docker/docker-compose.jenkins.yml`](../jenkin-docker/docker-compose.jenkins.yml) and configured by [`jenkin-docker/casc.yaml`](../jenkin-docker/casc.yaml).
 
 ---
 
@@ -304,13 +306,13 @@ mvn -Pmutation test-compile org.pitest:pitest-maven:mutationCoverage
 ```
 course-service/
 ├── Dockerfile                  # multi-stage, non-root runtime
-├── Dockerfile.jenkins          # Jenkins controller image (local CI)
+├── ../jenkin-docker/Dockerfile.jenkins # shared Jenkins controller image
 ├── docker-compose.yml          # standalone stack: app + MySQL
-├── docker-compose.jenkins.yml  # local Jenkins controller
+├── ../jenkin-docker/docker-compose.jenkins.yml # shared Jenkins controller
 ├── docker-compose.sonar.yml    # SonarQube + PostgreSQL
 ├── .env.example                # template for SONAR_TOKEN (git-ignored .env)
 ├── Jenkinsfile
-├── jenkins/casc.yaml           # Configuration as Code for the controller
+├── ../jenkin-docker/casc.yaml # Configuration as Code for the controller
 ├── pom.xml
 ├── README.md
 └── src

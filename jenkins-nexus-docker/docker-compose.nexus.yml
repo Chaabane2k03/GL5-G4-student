@@ -1,0 +1,31 @@
+name: gl5-nexus
+
+services:
+  nexus:
+    image: sonatype/nexus3:3.83.1
+    container_name: ${NEXUS_CONTAINER_NAME:-nexus-igl5}
+    environment:
+      INSTALL4J_ADD_VM_PARAMS: ${NEXUS_JAVA_OPTS:--Xms1200m -Xmx1200m -XX:MaxDirectMemorySize=2g}
+    ports:
+      - "${NEXUS_PORT:-8081}:8081"
+    volumes:
+      - nexus-data:/nexus-data
+    networks:
+      - jenkins-nexus
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8081/service/rest/v1/status >/dev/null || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 20
+      start_period: 60s
+    restart: unless-stopped
+
+volumes:
+  nexus-data:
+    external: true
+    name: gl5-jenkins_nexus-data
+
+networks:
+  jenkins-nexus:
+    external: true
+    name: gl5-jenkins-nexus

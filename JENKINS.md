@@ -1,198 +1,266 @@
 # Jenkins CI
 
-This project runs **one Jenkins controller per pipeline**, plus a **single shared
-SonarQube**. Stopping or resetting one controller does not affect the others.
+This project uses one shared Jenkins controller, separate Nexus and SonarQube
+services, and Jenkins Configuration as Code. The current setup is in
+[`jenkins-nexus-docker/`](jenkins-nexus-docker/).
 
-Jenkins clones the GitHub branch configured in each `jenkins/casc.yaml`, so the
-changes must be **pushed** before a build. It does not read your local folder.
+Jenkins uses GitHub Branch Source to create multibranch jobs in the
+`service-pipelines` folder. The configured branches are:
 
-| Service | Jenkins job | URL | Branch |
-| --- | --- | --- | --- |
-| config-server | `config-server` | http://localhost:8091 | `feature/config-server` |
-| department-service | `department-service` | http://localhost:8092 | `feature/department-service` |
-| enrollment-service | `enrollment-service` | http://localhost:8093 | `feature/enrollment` |
-| eureka-server | `Eureka-Server-CI` | http://localhost:8094 | `feature/eureka-server` |
-| student-service | `student-service` | http://localhost:8095 | `feature/student_service` |
+```text
+main
+develop
+feature/jenkins-nexus
+```
 
-Shared SonarQube is at http://localhost:9000, with containers `gl5-sonarqube`
-and `gl5-sonar-db`.
+A branch is created only when the configured service `Jenkinsfile` exists on
+that branch.
 
-## Before you start
+| Service | Jenkins job |
+| --- | --- |
+| department-service | `service-pipelines/department-service` |
+| enrollment-service | `service-pipelines/enrollment-service` |
+| student-service | `service-pipelines/student-service` |
+| course-service | `service-pipelines/course-service` |
+| api-gateway | `service-pipelines/api-gateway` |
 
-- Docker Desktop (or Docker Engine) with Compose v2.
-- About 8 GB of RAM available to Docker; 10–12 GB is better for all five
-  controllers plus Sonar.
-- Ports `9000` and `8091`–`8095` free. During builds, `8082`, `8085`, `3309`
-  and `3310` must also be free.
-- The branch in each `jenkins/casc.yaml` contains these changes and is pushed.
-  If everything is on one branch, change the `branch('...')` line in all five
-  `jenkins/casc.yaml` files to that branch.
+Jenkins is available locally at <http://localhost:8092>. SonarQube is available
+at <http://localhost:9000>, and Nexus is available at
+<http://localhost:8081>.
+
+## Prerequisites
+
+- Docker Desktop with Compose v2.
+- At least 4 GB of memory available to Docker.
+- Ports `8081`, `8092`, `9000`, and `50000` available.
+- The repository cloned locally.
 
 ## Setup
 
-### 1. Clone the repository
+Run these commands from the repository root.
 
-```sh
-git clone https://github.com/Chaabane2k03/GL5-G4-student.git
-cd GL5-G4-student
-```
+### 1. Start SonarQube
 
-### 2. Start SonarQube and create a token
-
-Start Sonar first: it creates the `gl5-sonar-net` network used by every controller.
-
-```sh
+```powershell
 docker compose -f docker-compose.sonar.yml up -d
 ```
 
-Wait until http://localhost:9000 is up. Log in with `admin` / `admin` (Sonar may
-ask you to change the password), then generate a token:
+Wait until <http://localhost:9000> reports status `UP`. In SonarQube, create a
+token through **My Account → Security**.
 
-**My Account → Security → Generate Token**
+### 2. Configure Jenkins and Nexus credentials
 
-### 3. Create the `.env` files
-
-Each service needs a `.env`. They are git-ignored, so they must be created on
-every machine.
+Create the local, git-ignored environment file:
 
 ```powershell
-$services = 'config-server','department-service','enrollment-service','eureka-server','student-service'
-foreach ($s in $services) {
-    if (-not (Test-Path "$s/.env")) {
-        Copy-Item "$s/.env.example" "$s/.env"
-    }
-}
+Copy-Item jenkins-nexus-docker\.env.example jenkins-nexus-docker\.env
+notepad jenkins-nexus-docker\.env
 ```
 
-Put the Sonar token in all five files:
-
-```powershell
-$token = '<paste-token-here>'
-$services = 'config-server','department-service','enrollment-service','eureka-server','student-service'
-foreach ($s in $services) {
-    (Get-Content "$s/.env") -replace '^SONAR_TOKEN=.*$', "SONAR_TOKEN=$token" |
-        Set-Content "$s/.env" -Encoding ascii
-}
-```
-
-`config-server/.env` also needs the Config Server settings:
+Set real local values, especially:
 
 ```dotenv
-CONFIG_REPO_URI=https://github.com/Chaabane2k03/config-repo.git
-GIT_USER=<github-user>
-GIT_TOKEN=<github-token>
-CONFIG_USER=config
-CONFIG_PASSWORD=<config-server-password>
-ENCRYPT_KEY=<config-repo-encryption-key>
+JENKINS_ADMIN_USER=admin
+JENKINS_ADMIN_PASSWORD=<jenkins-password>
+JENKINS_EXTERNAL_URL=https://raedbettaher.chaabaneboussadia.dev/
+SONAR_TOKEN=<sonarqube-token>
+NEXUS_USER=admin
+NEXUS_PASSWORD=<current-nexus-password>
 ```
 
-Each service uses `admin` / `admin` for Jenkins by default. If you change
-`JENKINS_PORT`, change `JENKINS_EXTERNAL_URL` to match.
+Never commit or share `.env`; it contains credentials and tokens.
 
-### 4. Build and start the controllers
+### 3. Create the shared network
 
-Run them one at a time. The first build downloads Maven, the JDK and Jenkins
-plugins, so it takes a few minutes.
+Create the external network once. If it already exists, Docker reports that it
+already exists and it can be reused.
 
 ```powershell
-$services = 'config-server','department-service','enrollment-service','eureka-server','student-service'
-foreach ($s in $services) {
-    Push-Location $s
-    docker compose -f docker-compose.jenkins.yml up -d --build
-    Pop-Location
-}
+docker network create gl5-jenkins-nexus
 ```
 
-Log in at each URL with `admin` / `admin` unless you changed the `.env`.
-Wait a minute or two for the job to appear.
-
-### 5. Register the Sonar webhooks
-
-The quality gate needs SonarQube to call Jenkins back. This also disables Sonar's
-private-address check, which would otherwise reject the internal webhook URL.
+### 4. Start Nexus
 
 ```powershell
-$services = 'config-server','department-service','enrollment-service','eureka-server','student-service'
-foreach ($s in $services) {
-    Push-Location $s
-    docker compose -f docker-compose.jenkins.yml run --rm sonar-webhook-init
-    Pop-Location
-}
+docker compose -f jenkins-nexus-docker\docker-compose.nexus.yml up -d
+docker compose -f jenkins-nexus-docker\docker-compose.nexus.yml ps
 ```
 
-Each run should end with `Registered webhook ...`.
+Open <http://localhost:8081>. On a new Nexus volume, retrieve the initial
+password:
 
-### 6. Check everything
+```powershell
+docker exec nexus-igl5 cat /nexus-data/admin.password
+```
 
-- Five controllers are running: `docker ps --filter "name=jenkins"`.
-- All five Jenkins URLs open and show their job.
-- SonarQube shows five webhooks under **Administration → Configuration → Webhooks**.
+After signing in, create these Maven hosted repositories through
+**Server administration and configuration → Repositories → Create repository**:
 
-## Run the pipelines
+| Name | Version policy | Deployment policy |
+| --- | --- | --- |
+| `gl5-student-snapshots` | Snapshot | Allow redeploy |
+| `gl5-student-releases` | Release | Disable redeploy |
 
-Click **Build Now** in each Jenkins job. Run them one after another; five
-simultaneous builds can run the Docker VM out of memory.
+Use the `default` blob store and `Strict` layout policy. The names must match
+the service `ci.env` files.
 
-| Job | What it does |
-| --- | --- |
-| `config-server` | Build, tests, Sonar, quality gate |
-| `department-service` | H2 tests, MySQL smoke test, Sonar, quality gate |
-| `enrollment-service` | Build, tests, Sonar, Docker image |
-| `Eureka-Server-CI` | Build, tests, Sonar, quality gate, Docker image |
-| `student-service` | H2 tests, MySQL smoke test, Sonar, quality gate |
+### 5. Build and start Jenkins
 
-A healthy setup finishes with **SUCCESS** for all five jobs.
+The first build downloads the JDK, Maven, and Jenkins plugins.
 
-Before running department or student, stop the main application stack so its
-ports do not clash:
+```powershell
+docker compose -f jenkins-nexus-docker\docker-compose.jenkins.yml up -d --build
+docker logs -f gl5-jenkins
+```
 
-```sh
+Wait for:
+
+```text
+Jenkins is fully up and running
+```
+
+Open <http://localhost:8092> and sign in using the credentials from `.env`.
+The CasC file [`casc.yaml`](jenkins-nexus-docker/casc.yaml) creates the
+`service-pipelines` folder and all multibranch jobs.
+
+### 6. Configure the GitHub push webhook
+
+In the GitHub repository, open **Settings → Webhooks → Add webhook**:
+
+```text
+Payload URL: https://raedbettaher.chaabaneboussadia.dev/github-webhook/
+Content type: application/json
+Events: Just the push event
+Active: enabled
+```
+
+The public hostname must forward HTTPS traffic to Jenkins on port `8092`.
+After saving, open **Recent Deliveries** and confirm an HTTP `200` response.
+
+Pushes to `main`, `develop`, or `feature/jenkins-nexus` trigger branch indexing.
+The actual build runs in the discovered child branch job, not in the parent
+multibranch indexing job.
+
+### 7. Register the SonarQube webhook
+
+After Jenkins and SonarQube are running:
+
+```powershell
+docker compose -f jenkins-nexus-docker\docker-compose.jenkins.yml run --rm sonar-webhook-init
+```
+
+The command should report that the webhook was registered or already exists.
+
+## Running pipelines
+
+There are two entry points, both inside the `service-pipelines` folder:
+
+- `all-services` runs the root [`Jenkinsfile`](Jenkinsfile): one pipeline for the
+  whole repository that builds only the services touched by the push, in
+  parallel, with tests, SonarQube quality gate, container image and Nexus
+  publishing. See [PIPELINE.md](PIPELINE.md) for the stages, parameters and
+  change-detection rules.
+- `department-service`, `enrollment-service`, `student-service`,
+  `course-service` and `api-gateway` run the per-service Jenkinsfile of each
+  folder.
+
+To run the single pipeline:
+
+1. Open Jenkins and enter the `service-pipelines` folder.
+2. Open `all-services`.
+3. If necessary, select **Scan Multibranch Pipeline Now**.
+4. Open the discovered branch child job such as `feature/jenkins-nexus`.
+5. Select **Build Now**, or **Build with Parameters** and set `BUILD_MODE=all`
+   to rebuild every service.
+
+To verify that change detection is doing what you expect, read the
+`Detect changes` stage: it prints the scope and the list of services it selected.
+
+The parent multibranch job's successful indexing build is not a service build.
+It only discovers branches and Jenkinsfiles.
+
+`PER_SERVICE_JOBS=false` (in `jenkins-nexus-docker/.env`, then recreate Jenkins)
+stops creating the per-service jobs; delete the existing ones by hand if you
+want `all-services` to be the only job.
+
+Run builds one at a time when Docker has limited memory. Before running
+pipelines that use application ports, stop the application stack if needed:
+
+```powershell
 docker compose -f docker-compose.yml down
 ```
 
+## Verification
+
+```powershell
+docker compose -f jenkins-nexus-docker\docker-compose.jenkins.yml ps
+docker compose -f jenkins-nexus-docker\docker-compose.nexus.yml ps
+docker ps --filter "name=gl5-sonarqube"
+docker exec gl5-jenkins sh -c "getent hosts nexus-igl5"
+docker exec gl5-jenkins sh -c "curl -fsS http://nexus-igl5:8081/service/rest/v1/status"
+```
+
+The Jenkins-to-Nexus request should return a healthy Nexus status.
+
 ## Common problems
 
-- **`network gl5-sonar-net ... not found`** — start Sonar first.
-- **`SONAR_TOKEN is empty`** — fill it in `.env`, run `up -d`, then re-run the
-  webhook init.
-- **`Invalid URL: loopback...`** — re-run `sonar-webhook-init`; it disables the
-  Sonar webhook URL check.
-- **Job fails at checkout** — the configured branch is missing or was not pushed.
-- **Quality gate never finishes** — the webhook is missing or the token is wrong.
-  Check the webhook list in Sonar.
-- **`port is already allocated`** — stop the app stack or change the port in
-  `.env` and `JENKINS_EXTERNAL_URL`.
-- **Controllers die or Jenkins is slow** — give Docker more memory and run
-  pipelines one at a time.
-- **Login fails after editing `.env`** — recreate the controller with `up -d`.
+- **Jenkins returns `503` or repeatedly restarts:** inspect
+  `docker logs gl5-jenkins`. A CasC or plugin error must be fixed before
+  Jenkins can become ready.
+- **CasC reports `repositoryUrl` is required:** ensure each GitHub source in
+  [`casc.yaml`](jenkins-nexus-docker/casc.yaml) contains:
+  `repositoryUrl('https://github.com/Chaabane2k03/GL5-G4-student')`.
+- **A push only indexes branches:** open the discovered child branch job.
+  Indexing itself does not execute a `Jenkinsfile`.
+- **GitHub webhook returns `404`, `502`, or times out:** verify that the public
+  hostname forwards to Jenkins and includes `/github-webhook/`.
+- **`network gl5-sonar-net ... not found`:** start SonarQube first.
+- **Nexus publishing fails:** verify the `nexus` Jenkins credential, the
+  current Nexus password, repository names, and Nexus user permissions.
+- **`port is already allocated`:** stop the application stack or change the
+  relevant local port.
 
 ## Everyday commands
 
-Run these from a service directory.
+Run these from the repository root:
 
 | Task | Command |
 | --- | --- |
-| Show status | `docker compose -f docker-compose.jenkins.yml ps` |
-| Follow logs | `docker compose -f docker-compose.jenkins.yml logs -f jenkins` |
-| Restart Jenkins | `docker compose -f docker-compose.jenkins.yml restart jenkins` |
-| Apply `.env` changes | `docker compose -f docker-compose.jenkins.yml up -d` |
-| Rebuild the image | `docker compose -f docker-compose.jenkins.yml up -d --build` |
-| Stop, keep data | `docker compose -f docker-compose.jenkins.yml down` |
-| Stop and delete data | `docker compose -f docker-compose.jenkins.yml down -v` |
+| Jenkins status | `docker compose -f jenkins-nexus-docker\docker-compose.jenkins.yml ps` |
+| Jenkins logs | `docker logs -f gl5-jenkins` |
+| Restart Jenkins | `docker compose -f jenkins-nexus-docker\docker-compose.jenkins.yml restart jenkins` |
+| Apply `.env` changes | `docker compose -f jenkins-nexus-docker\docker-compose.jenkins.yml up -d --force-recreate jenkins` |
+| Rebuild Jenkins | `docker compose -f jenkins-nexus-docker\docker-compose.jenkins.yml up -d --build --force-recreate` |
+| Stop Jenkins, keep data | `docker compose -f jenkins-nexus-docker\docker-compose.jenkins.yml down` |
+| Nexus status | `docker compose -f jenkins-nexus-docker\docker-compose.nexus.yml ps` |
+| Stop Nexus, keep data | `docker compose -f jenkins-nexus-docker\docker-compose.nexus.yml down` |
 
-To stop SonarQube, use `docker compose -f docker-compose.sonar.yml down`.
-Adding `-v` deletes its projects and tokens; generate a new token and re-register
-the webhooks afterwards.
+To stop SonarQube:
+
+```powershell
+docker compose -f docker-compose.sonar.yml down
+```
+
+## Reset Jenkins data
+
+This removes Jenkins jobs, credentials, and configuration stored in Jenkins
+home. It does not remove Nexus data or the Maven cache:
+
+```powershell
+docker compose -f jenkins-nexus-docker\docker-compose.jenkins.yml down
+docker volume rm gl5-jenkins_jenkins-home
+docker compose -f jenkins-nexus-docker\docker-compose.jenkins.yml up -d --build
+```
+
+Do not remove `gl5-jenkins_nexus-data` unless a complete Nexus reset is
+intended. Removing it deletes Nexus repositories and requires recreating them.
 
 ## Security
 
-This setup is for local development only:
+This setup mounts the host Docker socket into Jenkins. Anyone with sufficient
+Jenkins permissions can therefore control Docker on the host. Change all
+default credentials, keep `.env` files private, and do not expose Jenkins
+without HTTPS and appropriate access controls.
 
-- Change the default `admin` / `admin` login.
-- The controllers mount the host Docker socket, so anyone using Jenkins can
-  control Docker on the host.
-- Do not expose these ports to the internet.
-- Never commit `.env` files; they contain the Sonar token and Git secrets.
-
-See [README.md](README.md) for the application stack and
-[docker-compose.sonar.yml](docker-compose.sonar.yml) for the shared Sonar setup.
+For the detailed Jenkins/Nexus runbook, see
+[`jenkins-nexus-docker/README.md`](jenkins-nexus-docker/README.md).

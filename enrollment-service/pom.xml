@@ -17,6 +17,9 @@
         <java.version>17</java.version>
         <spring-cloud.version>2025.0.3</spring-cloud.version>
         <sonar.projectKey>enrollment-service</sonar.projectKey>
+        <nexus.url>http://host.docker.internal:8081</nexus.url>
+        <nexus.release.repo>gl5-student-releases</nexus.release.repo>
+        <nexus.snapshot.repo>gl5-student-snapshots</nexus.snapshot.repo>
         <sonar.coverage.jacoco.xmlReportPaths>${project.build.directory}/site/jacoco/jacoco.xml</sonar.coverage.jacoco.xmlReportPaths>
     </properties>
     <dependencyManagement>
@@ -108,11 +111,11 @@
     <distributionManagement>
         <snapshotRepository>
             <id>nexus-snapshots</id>
-            <url>http://host.docker.internal:8081/repository/maven-snapshots/</url>
+            <url>${nexus.url}/repository/${nexus.snapshot.repo}/</url>
         </snapshotRepository>
         <repository>
             <id>nexus-releases</id>
-            <url>http://host.docker.internal:8081/repository/maven-releases/</url>
+            <url>${nexus.url}/repository/${nexus.release.repo}/</url>
         </repository>
     </distributionManagement>
 

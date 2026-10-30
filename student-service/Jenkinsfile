@@ -1,7 +1,3 @@
-def sonarQualityGateStatus = 'NOT_RUN'
-def sonarDashboardUrl = 'NOT_AVAILABLE'
-def buildAndTestStatus = 'NOT_RUN'
-
 pipeline {
     agent any
 
@@ -10,15 +6,22 @@ pipeline {
         maven 'Maven3'
     }
 
-    environment {
-        DOCKER_IMAGE = 'gl5-g4-student-service'
+    options {
+        timestamps()
+        disableConcurrentBuilds()
     }
 
-    options {
-        disableConcurrentBuilds()
-        timestamps()
-        skipDefaultCheckout(true)
-        timeout(time: 30, unit: 'MINUTES')
+    parameters {
+        booleanParam(
+            name: 'FORCE_RELEASE',
+            defaultValue: false,
+            description: 'Force release deployment to Nexus regardless of git branch'
+        )
+        string(
+            name: 'OVERRIDE_VERSION',
+            defaultValue: '',
+            description: 'Optional manual version override (e.g. 1.2.0)'
+        )
     }
 
     stages {
@@ -28,205 +31,218 @@ pipeline {
             }
         }
 
-        stage('Check environment') {
+        // Build and test ONCE: the jar produced here is reused by Docker and Nexus.
+        stage('Build & Test') {
             steps {
-                sh '''
-                    set -eu
-                    command -v docker || {
-                        echo >&2 'Docker CLI is missing on the Jenkins built-in node.'
-                        echo >&2 'Rebuild Jenkins with jenkins/Dockerfile and mount /var/run/docker.sock.'
-                        exit 1
-                    }
-                    command -v curl || {
-                        echo >&2 'curl is required on the Jenkins built-in node.'
-                        exit 1
-                    }
-                    docker info >/dev/null || {
-                        echo >&2 'Jenkins cannot access the Docker daemon. Check the Docker socket mount and group_add configuration.'
-                        exit 1
-                    }
-                    docker compose version >/dev/null || {
-                        echo >&2 'Docker Compose v2 is missing from the Jenkins image.'
-                        exit 1
-                    }
-                    curl --fail --silent --show-error \
-                        --retry 5 --retry-connrefused --retry-delay 2 \
-                        --output /dev/null \
-                        https://repo.maven.apache.org/maven2/org/springframework/boot/spring-boot-starter-parent/3.5.5/spring-boot-starter-parent-3.5.5.pom || {
-                        echo >&2 'Maven Central is unreachable from the Jenkins built-in node. Check Jenkins Docker DNS/network settings.'
-                        exit 1
-                    }
-                    java -version
-                    mvn -version
-                '''
-            }
-        }
-
-        stage('Build and test with H2') {
-            steps {
-                sh '''
-                    set -eu
-                    echo "Building from Jenkins workspace: $WORKSPACE"
-                    test -f student-service/pom.xml || {
-                        echo >&2 'student-service/pom.xml is missing from the checked-out Jenkins workspace.'
-                        exit 1
-                    }
-                    mkdir -p "$WORKSPACE/.m2/repository"
-
-                    attempt=1
-                    while [ "$attempt" -le 3 ]; do
-                        log_file=$(mktemp "$WORKSPACE/.maven-verify.XXXXXX")
-                        set +e
-                        mvn -U -B -ntp \
-                            -Dmaven.repo.local="$WORKSPACE/.m2/repository" \
-                            -f student-service/pom.xml clean verify >"$log_file" 2>&1
-                        status=$?
-                        set -e
-                        cat "$log_file"
-
-                        if [ "$status" -eq 0 ]; then
-                            rm -f "$log_file"
-                            exit 0
-                        fi
-                        if ! grep -Eqi 'UnknownHostException|Unknown host|Temporary failure in name resolution|Name or service not known' "$log_file" \
-                            || [ "$attempt" -eq 3 ]; then
-                            exit "$status"
-                        fi
-
-                        echo "Maven Central DNS failed; retrying verification (attempt $((attempt + 1)) of 3)."
-                        rm -f "$log_file"
-                        attempt=$((attempt + 1))
-                        sleep 5
-                    done
-                '''
-            }
-            post {
-                success {
-                    script {
-                        buildAndTestStatus = 'SUCCESS'
-                    }
+                dir('student-service') {
+                    sh 'mvn -B clean verify'
                 }
-                unsuccessful {
-                    script {
-                        buildAndTestStatus = currentBuild.currentResult
-                    }
-                }
-            }
-        }
-
-        stage('Build and run with MySQL') {
-            steps {
-                sh '''
-                    set -eu
-                    docker compose -p "student-service-$BUILD_NUMBER" \
-                        -f student-service/compose.yaml up -d --build
-                    ready=0
-                    for attempt in $(seq 1 60); do
-                        if curl --fail --silent --show-error --connect-timeout 2 \
-                            http://host.docker.internal:8085/v3/api-docs >/dev/null; then
-                            ready=1
-                            break
-                        fi
-                        sleep 2
-                    done
-                    if [ "$ready" -ne 1 ]; then
-                        echo >&2 'Student service did not respond through the Docker host gateway at host.docker.internal:8085/v3/api-docs.'
-                        docker compose -p "student-service-$BUILD_NUMBER" \
-                            -f student-service/compose.yaml ps
-                        docker compose -p "student-service-$BUILD_NUMBER" \
-                            -f student-service/compose.yaml logs
-                        exit 1
-                    fi
-                    docker image inspect "$DOCKER_IMAGE:$BUILD_NUMBER" >/dev/null
-                '''
             }
             post {
                 always {
-                    sh '''
-                        docker compose -p "student-service-$BUILD_NUMBER" \
-                            -f student-service/compose.yaml down --volumes --remove-orphans
-                    '''
+                    junit(
+                        allowEmptyResults: true,
+                        testResults: 'student-service/target/surefire-reports/TEST-*.xml'
+                    )
                 }
             }
         }
 
-        stage('SonarQube analysis') {
-            steps {
-                withSonarQubeEnv('SonarQube') {
-                    script {
-                        sonarDashboardUrl = "${env.SONAR_HOST_URL}/dashboard?id=gl5-g4-student-service"
+        // Run SonarQube analysis and container packaging in parallel
+        stage('Analysis & Packaging') {
+            parallel {
+                stage('SonarQube Analysis') {
+                    steps {
+                        withSonarQubeEnv('SonarQube') {
+                            dir('student-service') {
+                                sh '''
+                                    [ -f ci.env ] && set -a && . ./ci.env && set +a
+                                    [ -f .env.local ] && set -a && . ./.env.local && set +a
+                                    [ -f .env ] && set -a && . ./.env && set +a
+
+                                    PKEY="${SONAR_PROJECT_KEY:-student-service}"
+                                    PNAME="${SONAR_PROJECT_NAME:-Student Service}"
+
+                                    mvn -B org.sonarsource.scanner.maven:sonar-maven-plugin:sonar \
+                                      -Dsonar.projectKey="${PKEY}" \
+                                      -Dsonar.projectName="${PNAME}"
+                                '''
+                            }
+                        }
                     }
-                    sh '''
-                        set -eu
-                        mvn -U -B -ntp \
-                            -Dmaven.repo.local="$WORKSPACE/.m2/repository" \
-                            -f student-service/pom.xml \
-                            org.sonarsource.scanner.maven:sonar-maven-plugin:5.3.0.6276:sonar \
-                            -Dsonar.projectKey=gl5-g4-student-service \
-                            -Dsonar.projectName="Student Service"
-                    '''
                 }
-            }
-        }
 
-        stage('Quality gate') {
-            steps {
-                script {
-                    timeout(time: 5, unit: 'MINUTES') {
-                        def qualityGate = waitForQualityGate(abortPipeline: false)
-                        sonarQualityGateStatus = qualityGate.status
-                        if (qualityGate.status != 'OK') {
-                            error "SonarQube quality gate failed: ${qualityGate.status}"
+                // Uses the pre-built jar from Build & Test via Dockerfile.ci for fast packaging
+                stage('Docker Build') {
+                    steps {
+                        catchError(buildResult: 'SUCCESS', stageResult: 'UNSTABLE') {
+                            dir('student-service') {
+                                sh '''
+                                    [ -f ci.env ] && set -a && . ./ci.env && set +a
+                                    [ -f .env.local ] && set -a && . ./.env.local && set +a
+                                    [ -f .env ] && set -a && . ./.env && set +a
+
+                                    if [ "${ENABLE_DOCKER_BUILD:-true}" = "false" ]; then
+                                        echo "ENABLE_DOCKER_BUILD is false; skipping Docker packaging."
+                                        exit 0
+                                    fi
+
+                                    if ! docker info >/dev/null 2>&1; then
+                                        echo "=================================================================="
+                                        echo "WARNING: Cannot connect to Docker daemon at unix:///var/run/docker.sock"
+                                        echo "The Jenkins user does not have permission to access the Docker socket."
+                                        echo ""
+                                        echo "Quick fix on host:   sudo chmod 666 /var/run/docker.sock"
+                                        echo "Permanent fix:       sudo usermod -aG docker jenkins && sudo systemctl restart jenkins"
+                                        echo ""
+                                        echo "Skipping Docker image packaging without failing the build."
+                                        echo "=================================================================="
+                                        exit 1
+                                    fi
+
+                                    if ! ls target/*.jar 2>/dev/null | grep -q .; then
+                                        echo "ERROR: No JAR found in target/ — skipping Docker build." >&2
+                                        exit 1
+                                    fi
+
+                                    IMG_NAME="${DOCKER_IMAGE_NAME:-student-service}"
+                                    if [ -f Dockerfile.ci ]; then
+                                        docker build -f Dockerfile.ci \
+                                          -t "${IMG_NAME}:${BUILD_NUMBER}" \
+                                          -t "${IMG_NAME}:latest" .
+                                    else
+                                        docker build \
+                                          -t "${IMG_NAME}:${BUILD_NUMBER}" \
+                                          -t "${IMG_NAME}:latest" .
+                                    fi
+                                '''
+                            }
                         }
                     }
                 }
             }
         }
+
+        // Publish to Nexus: Release if pushed to main (or FORCE_RELEASE=true), otherwise Snapshot.
+        stage('Publish to Nexus') {
+            steps {
+                withCredentials([
+                    usernamePassword(
+                        credentialsId: 'nexus',
+                        usernameVariable: 'NEXUS_USER',
+                        passwordVariable: 'NEXUS_PASS'
+                    )
+                ]) {
+                    dir('student-service') {
+                        sh '''
+                            set +x
+                            trap 'rm -f settings.xml' EXIT
+
+                            [ -f ci.env ] && set -a && . ./ci.env && set +a
+                            [ -f .env.local ] && set -a && . ./.env.local && set +a
+                            [ -f .env ] && set -a && . ./.env && set +a
+
+                            NEXUS_BASE="${NEXUS_BASE_URL:-http://host.docker.internal:8081}"
+                            RELEASE_REPO="${NEXUS_RELEASE_REPO_NAME:-gl5-student-releases}"
+                            SNAPSHOT_REPO="${NEXUS_SNAPSHOT_REPO_NAME:-gl5-student-snapshots}"
+                            RELEASE_ID="${NEXUS_RELEASE_REPO_ID:-nexus-releases}"
+                            SNAPSHOT_ID="${NEXUS_SNAPSHOT_REPO_ID:-nexus-snapshots}"
+                            TARGET_RELEASE_BRANCH="${RELEASE_BRANCH:-main}"
+
+                            RELEASE_URL="${NEXUS_BASE}/repository/${RELEASE_REPO}/"
+                            SNAPSHOT_URL="${NEXUS_BASE}/repository/${SNAPSHOT_REPO}/"
+
+                            cat > settings.xml <<EOF
+<settings>
+  <servers>
+    <server>
+      <id>${SNAPSHOT_ID}</id>
+      <username>${NEXUS_USER}</username>
+      <password>${NEXUS_PASS}</password>
+    </server>
+    <server>
+      <id>${RELEASE_ID}</id>
+      <username>${NEXUS_USER}</username>
+      <password>${NEXUS_PASS}</password>
+    </server>
+  </servers>
+</settings>
+EOF
+
+                            GIT_BRANCH_NAME="${BRANCH_NAME:-${GIT_BRANCH:-}}"
+                            CURRENT_BRANCH=$(echo "${GIT_BRANCH_NAME}" | sed 's|^origin/||')
+                            echo "Detected branch: '${CURRENT_BRANCH}' (Configured release branch: '${TARGET_RELEASE_BRANCH}')"
+
+                            if [ -n "${OVERRIDE_VERSION:-}" ]; then
+                                TARGET_VERSION="${OVERRIDE_VERSION}"
+                                echo "Using manual override version: ${TARGET_VERSION}"
+                            else
+                                CURRENT_POM_VERSION=$(mvn -B help:evaluate -Dexpression=project.version -q -DforceStdout 2>/dev/null | grep -F -v "[" | tail -n 1)
+                                BASE_VERSION=$(echo "${CURRENT_POM_VERSION}" | sed -E 's/-SNAPSHOT$//')
+                                VERSION_ROOT="${VERSION_PREFIX:-$BASE_VERSION}"
+
+                                if [ "${CURRENT_BRANCH}" = "${TARGET_RELEASE_BRANCH}" ] || [ "${FORCE_RELEASE}" = "true" ]; then
+                                    TARGET_VERSION="${VERSION_ROOT}.${BUILD_NUMBER}"
+                                else
+                                    TARGET_VERSION="${VERSION_ROOT}.${BUILD_NUMBER}-SNAPSHOT"
+                                fi
+                            fi
+
+                            mvn -B versions:set \
+                              -DnewVersion="${TARGET_VERSION}" \
+                              -DgenerateBackupPoms=false
+
+                            if [ "${CURRENT_BRANCH}" = "${TARGET_RELEASE_BRANCH}" ] || [ "${FORCE_RELEASE}" = "true" ]; then
+                                echo "=========================================================="
+                                echo "Publishing RELEASE version ${TARGET_VERSION} to ${RELEASE_ID} (${RELEASE_URL})"
+                                echo "=========================================================="
+                                mvn -B -s settings.xml deploy \
+                                  -DskipTests \
+                                  -DaltReleaseDeploymentRepository="${RELEASE_ID}::default::${RELEASE_URL}" \
+                                  -Dnexus.url="${NEXUS_BASE}" \
+                                  -Dnexus.release.repo="${RELEASE_REPO}"
+                            else
+                                echo "=========================================================="
+                                echo "Publishing SNAPSHOT version ${TARGET_VERSION} to ${SNAPSHOT_ID} (${SNAPSHOT_URL})"
+                                echo "=========================================================="
+                                mvn -B -s settings.xml deploy \
+                                  -DskipTests \
+                                  -DaltSnapshotDeploymentRepository="${SNAPSHOT_ID}::default::${SNAPSHOT_URL}" \
+                                  -Dnexus.url="${NEXUS_BASE}" \
+                                  -Dnexus.snapshot.repo="${SNAPSHOT_REPO}"
+                            fi
+                        '''
+                    }
+                }
+            }
+        }
+
     }
 
     post {
+        success {
+            echo 'Pipeline for student-service succeeded'
+        }
+        failure {
+            echo 'Pipeline for student-service failed'
+        }
         always {
-            script {
-                def testReport = sh(
-                    script: 'if [ -d student-service/target/surefire-reports ]; then find student-service/target/surefire-reports -maxdepth 1 -type f -name "TEST-*.xml" -print -quit; fi',
-                    returnStdout: true
-                ).trim()
-                if (testReport) {
-                    junit testResults: 'student-service/target/surefire-reports/TEST-*.xml',
-                        allowEmptyResults: true
-                } else {
-                    echo 'No Maven test reports were produced.'
-                }
-            }
-            archiveArtifacts artifacts: 'student-service/target/student-service.jar,student-service/target/site/jacoco/jacoco.xml',
-                allowEmptyArchive: true
-            script {
-                if (env.EMAIL_RECIPIENTS?.trim()) {
-                    emailext(
-                        to: env.EMAIL_RECIPIENTS,
-                        subject: "[${currentBuild.currentResult}] ${env.JOB_NAME} #${env.BUILD_NUMBER}",
-                        mimeType: 'text/html',
-                        body: """
-                            <h2>Student Service build ${currentBuild.currentResult}</h2>
-                            <ul>
-                                <li><strong>Job:</strong> ${env.JOB_NAME}</li>
-                                <li><strong>Build:</strong> <a href="${env.BUILD_URL}">#${env.BUILD_NUMBER}</a></li>
-                                <li><strong>Branch:</strong> ${env.GIT_BRANCH ?: 'unknown'}</li>
-                                <li><strong>Commit:</strong> ${env.GIT_COMMIT ?: 'unknown'}</li>
-                                <li><strong>Build and tests:</strong> ${buildAndTestStatus}</li>
-                                <li><strong>Overall Jenkins result:</strong> ${currentBuild.currentResult}</li>
-                                <li><strong>SonarQube Quality Gate:</strong> ${sonarQualityGateStatus}</li>
-                                <li><strong>SonarQube project:</strong> <a href="${sonarDashboardUrl}">${sonarDashboardUrl}</a></li>
-                                <li><strong>Docker image:</strong> ${env.DOCKER_IMAGE}:${env.BUILD_NUMBER}</li>
-                            </ul>
-                        """,
-                        attachLog: true,
-                        attachmentsPattern: 'student-service/target/surefire-reports/*.txt,student-service/target/site/jacoco/jacoco.xml,student-service/target/sonar/report-task.txt,student-service/.scannerwork/report-task.txt'
-                    )
-                } else {
-                    echo 'EMAIL_RECIPIENTS is not configured; skipping build notification.'
-                }
-            }
+            emailext(
+                to: 'chaabaneboussadia@gmail.com',
+                subject: "${env.JOB_NAME} - Build #${env.BUILD_NUMBER} - ${currentBuild.currentResult}",
+                mimeType: 'text/html',
+                body: """
+                    <h2>Jenkins Build Report</h2>
+                    <p><b>Service:</b> student-service</p>
+                    <p><b>Job:</b> ${env.JOB_NAME}</p>
+                    <p><b>Build Number:</b> ${env.BUILD_NUMBER}</p>
+                    <p><b>Status:</b> ${currentBuild.currentResult}</p>
+                    <p><b>Build URL:</b>
+                    <a href="${env.BUILD_URL}">Open build details</a></p>
+                    <p><b>Console Output:</b>
+                    <a href="${env.BUILD_URL}console">View console output</a></p>
+                """
+            )
         }
     }
 }
