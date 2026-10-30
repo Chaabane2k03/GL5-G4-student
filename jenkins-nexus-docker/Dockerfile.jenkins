@@ -45,6 +45,8 @@ RUN jenkins-plugin-cli --plugins \
         job-dsl \
         workflow-aggregator \
         git \
+        github \
+        github-branch-source \
         junit \
         jacoco \
         sonar \

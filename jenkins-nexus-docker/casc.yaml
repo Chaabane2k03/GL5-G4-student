@@ -42,10 +42,16 @@ credentials:
               username: "${NEXUS_USER:-admin}"
               password: "${NEXUS_PASSWORD}"
               description: "Nexus repository credentials"
+          - usernamePassword:
+              scope: GLOBAL
+              id: "github-token"
+              username: "${GITHUB_USER:-Chaabane2k03}"
+              password: "${GITHUB_TOKEN:-}"
+              description: "GitHub personal access token (GITHUB_TOKEN)"
 
 unclassified:
   location:
-    url: "${JENKINS_INTERNAL_URL}"
+    url: "${JENKINS_EXTERNAL_URL}"
     adminAddress: "ci@localhost"
   sonarGlobalConfiguration:
     buildWrapperEnabled: true
@@ -59,6 +65,8 @@ jobs:
       folder('service-pipelines') {
         description('Multibranch pipelines for GL5 services')
       }
+
+      def githubToken = System.getenv('GITHUB_TOKEN')
 
       def jobs = [
         [name: 'department-service', path: 'department-service', description: 'Multibranch CI/CD pipeline for department-service'],
@@ -76,11 +84,19 @@ jobs:
           branchSources {
             branchSource {
               source {
-                git {
+                github {
                   id(jobName + '-source')
-                  remote('https://github.com/Chaabane2k03/GL5-G4-student.git')
+                  repoOwner('Chaabane2k03')
+                  repository('GL5-G4-student')
+                  repositoryUrl('')
+                  configuredByUrl(false)
+                  if (githubToken) {
+                    credentialsId('github-token')
+                  }
                   traits {
-                    gitBranchDiscovery()
+                    gitHubBranchDiscovery {
+                      strategyId(3)
+                    }
                     headWildcardFilter {
                       includes('main develop feature/jenkins-nexus')
                       excludes('')

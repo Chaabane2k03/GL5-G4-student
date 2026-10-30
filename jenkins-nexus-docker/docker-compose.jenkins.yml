@@ -18,6 +18,8 @@ services:
       JENKINS_EXTERNAL_URL: ${JENKINS_EXTERNAL_URL:-http://localhost:8092/}
       JENKINS_INTERNAL_URL: ${JENKINS_INTERNAL_URL:-http://gl5-jenkins:8080/}
       SONAR_TOKEN: ${SONAR_TOKEN:-}
+      GITHUB_USER: ${GITHUB_USER:-Chaabane2k03}
+      GITHUB_TOKEN: ${GITHUB_TOKEN:-}
       NEXUS_USER: ${NEXUS_USER:-admin}
       NEXUS_PASSWORD: ${NEXUS_PASSWORD:-}
       DOCKER_HOST: unix:///var/run/docker.sock
