@@ -41,7 +41,14 @@ credentials:
               id: "nexus"
               username: "${NEXUS_USER:-admin}"
               password: "${NEXUS_PASSWORD}"
-              description: "Nexus repository credentials"
+              description: "Nexus repository credentials (Maven deploy)"
+          # Used by the frontend stage that pushes the Docker image to Nexus
+          - usernamePassword:
+              scope: GLOBAL
+              id: "nexus-docker"
+              username: "${NEXUS_USER:-admin}"
+              password: "${NEXUS_PASSWORD}"
+              description: "Nexus credentials (Docker registry push)"
           - usernamePassword:
               scope: GLOBAL
               id: "github-token"
@@ -68,8 +75,8 @@ jobs:
 
       def githubToken = System.getenv('GITHUB_TOKEN')
 
-      // Set PER_SERVICE_JOBS=false to stop creating the five per-service jobs
-      // and keep only the single all-services pipeline. Deleting the existing
+      // Set PER_SERVICE_JOBS=false to stop creating the six per-service jobs
+      // and keep only the single all-in-one pipeline. Deleting the existing
       // jobs is manual: Job DSL leaves them in place when they stop being defined.
       def perServiceJobs = System.getenv('PER_SERVICE_JOBS') == 'true'
 
@@ -78,13 +85,14 @@ jobs:
         [name: 'enrollment-service', path: 'enrollment-service', description: 'Multibranch CI/CD pipeline for enrollment-service'],
         [name: 'student-service', path: 'student-service', description: 'Multibranch CI/CD pipeline for student-service'],
         [name: 'course-service', path: 'course-service', description: 'Multibranch CI/CD pipeline for course-service'],
-        [name: 'api-gateway', path: 'api-gateway', description: 'Multibranch CI/CD pipeline for api-gateway']
+        [name: 'api-gateway', path: 'api-gateway', description: 'Multibranch CI/CD pipeline for api-gateway'],
+        [name: 'frontend-service', path: 'frontend-service', description: 'Multibranch CI/CD pipeline for frontend-service']
       ]
 
-      // Single pipeline for the whole repository: root Jenkinsfile builds only
-      // the services touched by a push, in parallel. See PIPELINE.md.
+      // Single pipeline for the whole repository (backend microservices + frontend):
+      // the root Jenkinsfile builds only the components touched by a push, in parallel.
       multibranchPipelineJob('service-pipelines/all-services') {
-        description('Single CI/CD pipeline for all GL5 services: build, test, SonarQube, container image and Nexus publishing')
+        description('Single CI/CD pipeline for all GL5 components (backend services + frontend): build, test, SonarQube, container image and Nexus publishing')
         branchSources {
           branchSource {
             source {

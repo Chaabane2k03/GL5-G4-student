@@ -1,15 +1,21 @@
 // =====================================================================
-//  Unified CI/CD pipeline for all microservices (monorepo)
-//  Services: api-gateway, course-service, department-service,
-//            enrollment-service, student-service
+//  Unified CI/CD pipeline for the whole monorepo (backend + frontend)
 //
-//  Flow per service (services run in parallel, independently):
-//    Version -> Build & Test -> [ SonarQube || Docker build ] -> Quality Gate -> Publish to Nexus
+//  Backend services : api-gateway, course-service, department-service,
+//                     enrollment-service, student-service
+//  Frontend         : frontend-service (Angular)
 //
-//  Only services whose files changed are built (or all, via BUILD_ALL / shared-file change).
+//  Backend flow (per service, parallel and independent):
+//    Version -> Build & Test -> [ SonarQube || Docker build ] -> Quality Gate -> Publish to Nexus (Maven)
+//
+//  Frontend flow:
+//    Install -> Lint -> Test & Coverage -> Build -> SonarQube -> Quality Gate
+//             -> Docker Build -> Smoke Test -> (optional) Publish image to Nexus Docker registry
+//
+//  Only components whose files changed are built (or all, via BUILD_ALL / Jenkinsfile change).
 // =====================================================================
 
-// Single source of truth: add a new service here and it is picked up automatically.
+// Single source of truth: add a new backend service here and it is picked up automatically.
 def SERVICES = [
     'api-gateway'       : 'API Gateway',
     'course-service'    : 'Course Service',
@@ -18,8 +24,13 @@ def SERVICES = [
     'student-service'   : 'Student Service'
 ]
 
-// Files that affect every service (root pom, CI config...) -> rebuild everything.
-def SHARED_PATHS = ['Jenkinsfile', 'pom.xml', 'common/', 'shared/']
+// Frontend folder (built with npm, not Maven).
+def FRONTEND = 'frontend-service'
+
+// Changes here rebuild EVERYTHING (backend + frontend).
+def GLOBAL_PATHS  = ['Jenkinsfile']
+// Changes here rebuild every BACKEND service only.
+def BACKEND_PATHS = ['pom.xml', 'common/', 'shared/']
 
 pipeline {
     agent any
@@ -39,29 +50,49 @@ pipeline {
     environment {
         NOTIFY_EMAIL     = 'chaabaneboussadia@gmail.com'
         RELEASE_BRANCH   = 'main'
-        DEFAULT_VERSION_PREFIX = '1.0'   // all services publish as 1.0.<build number>
+        DEFAULT_VERSION_PREFIX = '1.0'   // backend services publish as 1.0.<build number>
         // MAVEN_OPTS (shared local repo) is already set by docker-compose.jenkins.yml
     }
 
     parameters {
+        // ---- common ----
         booleanParam(name: 'BUILD_ALL', defaultValue: false,
-            description: 'Build every service, ignoring change detection')
+            description: 'Build every component (backend + frontend), ignoring change detection')
         string(name: 'ONLY_SERVICES', defaultValue: '',
-            description: 'Optional comma-separated list of services to build (e.g. api-gateway,student-service)')
+            description: 'Optional comma-separated list of components to build (e.g. api-gateway,student-service,frontend-service)')
+        booleanParam(name: 'ENFORCE_QUALITY_GATE', defaultValue: true,
+            description: 'Fail a component if its SonarQube quality gate fails')
+        booleanParam(name: 'DOCKER_BUILD', defaultValue: true,
+            description: 'Build Docker images for the backend services (the frontend always builds its image)')
+
+        // ---- backend ----
         booleanParam(name: 'FORCE_RELEASE', defaultValue: false,
             description: 'Force release deployment to Nexus regardless of git branch')
         string(name: 'OVERRIDE_VERSION', defaultValue: '',
-            description: 'Optional manual version override (e.g. 1.2.0). Applies to all selected services.')
-        booleanParam(name: 'ENFORCE_QUALITY_GATE', defaultValue: true,
-            description: 'Fail a service if its SonarQube quality gate fails')
-        booleanParam(name: 'DOCKER_BUILD', defaultValue: true,
-            description: 'Build Docker images')
+            description: 'Optional manual version override for backend services (e.g. 1.2.0)')
+
+        // ---- frontend ----
+        string(name: 'FRONTEND_IMAGE_NAME', defaultValue: 'gl5-g4-frontend-service',
+            description: 'Frontend Docker image repository name')
+        string(name: 'FRONTEND_SONAR_HOST_URL', defaultValue: 'http://host.docker.internal:9000',
+            description: 'SonarQube URL as seen from this controller (used by the frontend scanner)')
+        string(name: 'SMOKE_HOST', defaultValue: 'host.docker.internal',
+            description: 'Host used to reach the frontend smoke container')
+        string(name: 'SMOKE_PORT', defaultValue: '4300',
+            description: 'Host port for the frontend smoke container')
+        booleanParam(name: 'PUBLISH_FRONTEND_IMAGE', defaultValue: false,
+            description: 'Push the built frontend image to the local Nexus Docker registry')
+        string(name: 'NEXUS_DOCKER_REGISTRY', defaultValue: 'host.docker.internal:8087',
+            description: 'Nexus Docker connector as seen from Jenkins')
+        string(name: 'NEXUS_DOCKER_REPOSITORY', defaultValue: 'docker-hosted',
+            description: 'Nexus Docker hosted repository name')
     }
 
     stages {
 
         stage('Checkout') {
             steps {
+                deleteDir()
                 checkout scm
             }
         }
@@ -70,25 +101,30 @@ pipeline {
             steps {
                 script {
                     env.IS_RELEASE = (isReleaseBuild() ? 'true' : 'false')
-                    env.SELECTED_SERVICES = selectServices(SERVICES.keySet() as List, SHARED_PATHS).join(',')
+                    env.SELECTED_SERVICES = selectServices(SERVICES.keySet() as List, FRONTEND,
+                                                           GLOBAL_PATHS, BACKEND_PATHS).join(',')
                     echo "Branch release mode : ${env.IS_RELEASE}"
-                    echo "Services to build   : ${env.SELECTED_SERVICES ?: '(none)'}"
+                    echo "Components to build : ${env.SELECTED_SERVICES ?: '(none)'}"
                     currentBuild.description = env.SELECTED_SERVICES ?: 'no changes'
                 }
             }
         }
 
-        stage('Services') {
+        stage('Components') {
             when { expression { env.SELECTED_SERVICES } }
             steps {
                 script {
                     def branches = [:]
                     for (String svc : env.SELECTED_SERVICES.split(',')) {
                         def name = svc
-                        def displayName = SERVICES[name]
-                        branches[name] = { runService(name, displayName) }
+                        if (name == FRONTEND) {
+                            branches[name] = { runFrontend(name) }
+                        } else {
+                            def displayName = SERVICES[name]
+                            branches[name] = { runService(name, displayName) }
+                        }
                     }
-                    branches.failFast = false   // one failing service must not hide the others
+                    branches.failFast = false   // one failing component must not hide the others
                     parallel branches
                 }
             }
@@ -112,8 +148,8 @@ pipeline {
                         <p><b>Branch:</b> ${env.BRANCH_NAME ?: env.GIT_BRANCH} &nbsp;
                            <b>Mode:</b> ${env.IS_RELEASE == 'true' ? 'RELEASE' : 'SNAPSHOT'}</p>
                         <table border="1" cellpadding="6" cellspacing="0">
-                          <tr><th>Service</th><th>Result</th></tr>
-                          ${rows ?: '<tr><td colspan="2">No services built (no changes detected)</td></tr>'}
+                          <tr><th>Component</th><th>Result</th></tr>
+                          ${rows ?: '<tr><td colspan="2">Nothing built (no changes detected)</td></tr>'}
                         </table>
                         <p><a href="${env.BUILD_URL}">Build details</a> |
                            <a href="${env.BUILD_URL}console">Console output</a></p>
@@ -121,8 +157,8 @@ pipeline {
                 )
             }
         }
-        success { echo 'All selected services built successfully' }
-        failure { echo 'One or more services failed' }
+        success { echo 'All selected components built successfully' }
+        failure { echo 'One or more components failed' }
     }
 }
 
@@ -137,31 +173,75 @@ boolean isReleaseBuild() {
     return branch == env.RELEASE_BRANCH || params.FORCE_RELEASE
 }
 
-List selectServices(List all, List sharedPaths) {
+List selectServices(List backends, String frontend,
+                    List globalPaths, List backendPaths) {
+
+    def all = backends + [frontend]
+
+    // Explicit component selection has priority.
     if (params.ONLY_SERVICES?.trim()) {
-        def wanted = params.ONLY_SERVICES.split(',').collect { it.trim() }
+        def wanted = params.ONLY_SERVICES.split(',')
+                         .collect { it.trim() }
+
         return all.findAll { wanted.contains(it) }
     }
-    if (params.BUILD_ALL) { return all }
 
-    def base = env.GIT_PREVIOUS_SUCCESSFUL_COMMIT ?: env.GIT_PREVIOUS_COMMIT
+    // Build everything when requested.
+    if (params.BUILD_ALL) {
+        return all
+    }
+
+    def base = env.GIT_PREVIOUS_SUCCESSFUL_COMMIT ?:
+               env.GIT_PREVIOUS_COMMIT
+
     if (!base) {
-        echo 'No previous commit known -> building all services'
+        echo 'No previous commit known -> building everything'
         return all
     }
-    def changed = sh(script: "git diff --name-only ${base} HEAD || true", returnStdout: true)
-                    .trim().split('\n').findAll { it }
-    if (changed.any { f -> sharedPaths.any { f.startsWith(it) } }) {
-        echo 'Shared files changed -> building all services'
+
+    def changed = sh(
+        script: "git diff --name-only ${base} HEAD || true",
+        returnStdout: true
+    ).trim().split('\n').findAll { it }
+
+    echo "Changed files:"
+    changed.each { echo " - ${it}" }
+
+    // Jenkinsfile changed -> build everything.
+    if (changed.any { f ->
+        globalPaths.any { f.startsWith(it) }
+    }) {
+        echo 'Pipeline definition changed -> building everything'
         return all
     }
-    return all.findAll { svc -> changed.any { it.startsWith("${svc}/") } }
+
+    // Detect modified backend services.
+    def selected = backends.findAll { svc ->
+        changed.any { it.startsWith("${svc}/") }
+    }
+
+    // Shared backend files -> rebuild every backend.
+    if (changed.any { f ->
+        backendPaths.any { f.startsWith(it) }
+    }) {
+        echo 'Shared backend files changed -> building all backend services'
+        selected = backends
+    }
+
+    // FRONTEND ALWAYS BUILDS.
+    selected = selected + [frontend]
+
+    return selected
 }
 
 // Loads optional, non-secret CI overrides (ci.env) inside the service folder.
 String ciEnv() {
     return '[ -f ci.env ] && set -a && . ./ci.env && set +a || true'
 }
+
+// ---------------------------------------------------------------------
+//  Backend (Maven) pipeline
+// ---------------------------------------------------------------------
 
 void runService(String svc, String displayName) {
     def version = ''
@@ -229,9 +309,6 @@ String resolveVersion() {
     if (params.OVERRIDE_VERSION?.trim()) {
         return params.OVERRIDE_VERSION.trim()
     }
-    def pomVersion = sh(
-        script: "mvn -B help:evaluate -Dexpression=project.version -q -DforceStdout 2>/dev/null | grep -v '\\[' | tail -n 1",
-        returnStdout: true).trim()
     // Optional per-service prefix from ci.env (e.g. VERSION_PREFIX=1.0), as in the original pipelines.
     def prefix = sh(script: "${ciEnv()}\necho \"\${VERSION_PREFIX:-}\"", returnStdout: true).trim()
     // Priority: ci.env VERSION_PREFIX > pipeline default (1.0) -> every service publishes as 1.0.<build>
@@ -317,6 +394,209 @@ void publishToNexus(String svc) {
                       -DaltSnapshotDeploymentRepository="\${SNAPSHOT_ID}::\${NEXUS_BASE}/repository/\${SNAPSHOT_REPO}/"
                 fi
             """
+        }
+    }
+}
+
+// ---------------------------------------------------------------------
+//  Frontend (npm / Angular) pipeline
+// ---------------------------------------------------------------------
+
+void runFrontend(String svc) {
+    withEnv([
+        "IMAGE_NAME=${params.FRONTEND_IMAGE_NAME}",
+        "IMAGE_TAG=${env.BUILD_NUMBER}",
+        "SONAR_HOST_URL=${params.FRONTEND_SONAR_HOST_URL}",
+        "SMOKE_HOST=${params.SMOKE_HOST}",
+        "SMOKE_PORT=${params.SMOKE_PORT}",
+        "NEXUS_DOCKER_REGISTRY=${params.NEXUS_DOCKER_REGISTRY}",
+        "NEXUS_DOCKER_REPOSITORY=${params.NEXUS_DOCKER_REPOSITORY}"
+    ]) {
+        try {
+            stage("${svc}: Install") {
+                dir(svc) { sh 'npm ci --no-audit --no-fund' }
+            }
+
+            stage("${svc}: Lint") {
+                dir(svc) { sh 'npm run lint' }
+            }
+
+            stage("${svc}: Test & Coverage") {
+                dir(svc) {
+                    sh 'npm run test:ci'
+                    sh 'npm run coverage:normalize'
+                }
+            }
+
+            stage("${svc}: Build") {
+                dir(svc) { sh 'npm run build' }
+            }
+
+            stage("${svc}: SonarQube") {
+                dir(svc) {
+                    withCredentials([string(credentialsId: 'sonar-token', variable: 'SONAR_TOKEN')]) {
+                        sh '''
+                            set -eu
+                            unset NODE_OPTIONS
+                            sonar-scanner \
+                                -Dsonar.host.url="$SONAR_HOST_URL" \
+                                -Dsonar.token="$SONAR_TOKEN" \
+                                -Dsonar.javascript.node.maxspace=2048 \
+                                -Dsonar.working.directory=.scannerwork
+                        '''
+                    }
+                }
+            }
+
+            if (params.ENFORCE_QUALITY_GATE) {
+                stage("${svc}: Quality Gate") {
+                    dir(svc) {
+                        withCredentials([string(credentialsId: 'sonar-token', variable: 'SONAR_TOKEN')]) {
+                            timeout(time: 10, unit: 'MINUTES') {
+                                sh '''
+                                    set -euo pipefail
+
+                                    REPORT=".scannerwork/report-task.txt"
+                                    if [ ! -f "$REPORT" ]; then
+                                      echo "ERROR: $REPORT is missing - the scanner did not submit an analysis"
+                                      exit 1
+                                    fi
+
+                                    TASK_ID=$(sed -n 's/^ceTaskId=//p' "$REPORT" | head -n1)
+                                    if [ -z "$TASK_ID" ]; then
+                                      echo "ERROR: no ceTaskId in $REPORT"
+                                      exit 1
+                                    fi
+
+                                    AUTH=$(printf '%s:' "$SONAR_TOKEN" | base64 | tr -d '\\n')
+                                    sonar_api() { curl -fsS -H "Authorization: Basic $AUTH" "$SONAR_HOST_URL$1"; }
+
+                                    echo "Waiting for analysis task $TASK_ID ..."
+                                    ANALYSIS_ID=""
+                                    for _ in $(seq 1 60); do
+                                      TASK=$(sonar_api "/api/ce/task?id=$TASK_ID")
+                                      TASK_STATUS=$(printf '%s' "$TASK" | jq -r '.task.status')
+                                      case "$TASK_STATUS" in
+                                        SUCCESS)
+                                          ANALYSIS_ID=$(printf '%s' "$TASK" | jq -r '.task.analysisId')
+                                          break
+                                          ;;
+                                        FAILED|CANCELED)
+                                          echo "ERROR: analysis task $TASK_ID ended in $TASK_STATUS"
+                                          exit 1
+                                          ;;
+                                        *)
+                                          sleep 5
+                                          ;;
+                                      esac
+                                    done
+
+                                    if [ -z "$ANALYSIS_ID" ] || [ "$ANALYSIS_ID" = "null" ]; then
+                                      echo "ERROR: analysis task $TASK_ID did not finish in time"
+                                      exit 1
+                                    fi
+
+                                    GATE=$(sonar_api "/api/qualitygates/project_status?analysisId=$ANALYSIS_ID")
+                                    printf '%s' "$GATE" | jq -r \
+                                      '.projectStatus.conditions[]? | "  \\(.metricKey): \\(.status) (actual=\\(.actualValue // "-"), threshold=\\(.errorThreshold // "-"))"'
+                                    GATE_STATUS=$(printf '%s' "$GATE" | jq -r '.projectStatus.status')
+
+                                    case "$GATE_STATUS" in
+                                      OK|WARN)
+                                        echo "Quality gate: $GATE_STATUS"
+                                        ;;
+                                      *)
+                                        echo "ERROR: quality gate: $GATE_STATUS"
+                                        exit 1
+                                        ;;
+                                    esac
+                                '''
+                            }
+                        }
+                    }
+                }
+            }
+
+            stage("${svc}: Docker Build") {
+                dir(svc) {
+                    sh 'docker build -t "${IMAGE_NAME}:${IMAGE_TAG}" -t "${IMAGE_NAME}:latest" .'
+                }
+            }
+
+            stage("${svc}: Smoke Test") {
+                dir(svc) {
+                    sh '''
+                        set -eu
+                        docker rm -f frontend-smoke >/dev/null 2>&1 || true
+                        docker run -d --name frontend-smoke \
+                          --add-host api-gateway:127.0.0.1 \
+                          --add-host keycloak:127.0.0.1 \
+                          -p "${SMOKE_PORT}:8080" \
+                          "${IMAGE_NAME}:${IMAGE_TAG}"
+
+                        ok=0
+                        for i in $(seq 1 30); do
+                          if curl -fsS "http://${SMOKE_HOST}:${SMOKE_PORT}/health" >/dev/null; then
+                            ok=1
+                            break
+                          fi
+                          sleep 2
+                        done
+
+                        if [ "$ok" != "1" ]; then
+                          echo "Frontend did not become healthy on port ${SMOKE_PORT}"
+                          docker logs frontend-smoke || true
+                          exit 1
+                        fi
+
+                        curl -fsS "http://${SMOKE_HOST}:${SMOKE_PORT}/config.json" \
+                          | jq -e '.apiBaseUrl and .keycloak.url and .keycloak.realm and .keycloak.clientId' >/dev/null
+
+                        curl -fsS "http://${SMOKE_HOST}:${SMOKE_PORT}/" | grep -q '<app-root'
+
+                        AUTH_CODE=$(curl -s -o /dev/null -w '%{http_code}' "http://${SMOKE_HOST}:${SMOKE_PORT}/auth")
+                        if [ "$AUTH_CODE" != "301" ]; then
+                          echo "Expected /auth to redirect with 301, got $AUTH_CODE"
+                          exit 1
+                        fi
+
+                        docker rm -f frontend-smoke >/dev/null
+                    '''
+                }
+            }
+
+            if (params.PUBLISH_FRONTEND_IMAGE) {
+                stage("${svc}: Publish to Nexus") {
+                    dir(svc) {
+                        withCredentials([usernamePassword(credentialsId: 'nexus-docker',
+                                                          usernameVariable: 'NEXUS_USER',
+                                                          passwordVariable: 'NEXUS_PASSWORD')]) {
+                            sh '''
+                                set -eu
+                                echo "$NEXUS_PASSWORD" | docker login "$NEXUS_DOCKER_REGISTRY" -u "$NEXUS_USER" --password-stdin
+
+                                TARGET="$NEXUS_DOCKER_REGISTRY/$NEXUS_DOCKER_REPOSITORY/${IMAGE_NAME}:${IMAGE_TAG}"
+                                docker tag "${IMAGE_NAME}:${IMAGE_TAG}" "$TARGET"
+                                docker push "$TARGET"
+
+                                LATEST="$NEXUS_DOCKER_REGISTRY/$NEXUS_DOCKER_REPOSITORY/${IMAGE_NAME}:latest"
+                                docker tag "${IMAGE_NAME}:${IMAGE_TAG}" "$LATEST"
+                                docker push "$LATEST"
+
+                                docker logout "$NEXUS_DOCKER_REGISTRY"
+                            '''
+                        }
+                    }
+                }
+            }
+            serviceResults[svc] = 'SUCCESS'
+        } catch (err) {
+            serviceResults[svc] = 'FAILURE'
+            throw err
+        } finally {
+            junit allowEmptyResults: true, testResults: "${svc}/coverage/junit.xml"
+            archiveArtifacts artifacts: "${svc}/dist/cursus-frontend/**,${svc}/coverage/lcov.info", allowEmptyArchive: true
+            sh 'docker rm -f frontend-smoke >/dev/null 2>&1 || true'
         }
     }
 }

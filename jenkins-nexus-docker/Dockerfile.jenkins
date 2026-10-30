@@ -1,44 +1,131 @@
-# Shared Jenkins controller for all service pipelines.
+# ============================================================
+# Shared Jenkins Controller - Backend + Frontend CI/CD
+# Base: Jenkins 2.580.1 with JDK 21
 #
-# The controller provides the common build toolchain used by every Jenkinsfile:
-# Docker CLI/Compose, JDK 17, Maven 3.9, Git, curl and jq.
+# Toolchain:
+# - JDK 21 (Jenkins runtime)
+# - JDK 17 (Maven backend builds)
+# - Maven 3.9.9
+# - Node.js 24 + npm
+# - Chromium (Angular Karma tests)
+# - SonarScanner CLI 8.2.0
+# - Docker CLI + Buildx + Compose
+# - Git, curl, jq
+# ============================================================
+
 FROM jenkins/jenkins:2.580.1-jdk21
 
 USER root
 
+# ------------------------------------------------------------
+# Configuration
+# ------------------------------------------------------------
+
+ARG NODE_MAJOR=24
+ARG SONAR_SCANNER_VERSION=8.2.0.6438
+ARG MAVEN_VERSION=3.9.9
+
+# ------------------------------------------------------------
+# Base utilities + Chromium
+# ------------------------------------------------------------
+
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        ca-certificates curl gnupg git jq \
-    && install -m 0755 -d /etc/apt/keyrings \
-    && curl -fsSL https://download.docker.com/linux/debian/gpg -o /etc/apt/keyrings/docker.asc \
+        ca-certificates \
+        curl \
+        gnupg \
+        git \
+        jq \
+        unzip \
+        chromium \
+    && rm -rf /var/lib/apt/lists/*
+
+ENV CHROME_BIN=/usr/bin/chromium
+
+# ------------------------------------------------------------
+# Node.js 24 + npm
+# ------------------------------------------------------------
+
+RUN install -m 0755 -d /etc/apt/keyrings \
+    && curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key \
+        -o /etc/apt/keyrings/nodesource.asc \
+    && chmod a+r /etc/apt/keyrings/nodesource.asc \
+    && echo "deb [signed-by=/etc/apt/keyrings/nodesource.asc] https://deb.nodesource.com/node_${NODE_MAJOR}.x nodistro main" \
+        > /etc/apt/sources.list.d/nodesource.list \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends nodejs \
+    && rm -rf /var/lib/apt/lists/* \
+    && node --version \
+    && npm --version
+
+# Memory limit for Node.js processes
+ENV NODE_OPTIONS=--max-old-space-size=4096
+
+# ------------------------------------------------------------
+# Docker CLI + Buildx + Compose
+# ------------------------------------------------------------
+
+RUN install -m 0755 -d /etc/apt/keyrings \
+    && curl -fsSL https://download.docker.com/linux/debian/gpg \
+        -o /etc/apt/keyrings/docker.asc \
     && chmod a+r /etc/apt/keyrings/docker.asc \
     && . /etc/os-release \
     && echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/debian ${VERSION_CODENAME} stable" \
         > /etc/apt/sources.list.d/docker.list \
     && apt-get update \
-    && apt-get install -y --no-install-recommends docker-ce-cli docker-buildx-plugin docker-compose-plugin \
-    && rm -rf /var/lib/apt/lists/*
+    && apt-get install -y --no-install-recommends \
+        docker-ce-cli \
+        docker-buildx-plugin \
+        docker-compose-plugin \
+    && rm -rf /var/lib/apt/lists/* \
+    && docker --version \
+    && docker buildx version \
+    && docker compose version
+
+# ------------------------------------------------------------
+# SonarScanner CLI 8.2.0
+# ------------------------------------------------------------
+
+RUN curl -fsSL \
+        "https://binaries.sonarsource.com/Distribution/sonar-scanner-cli/sonar-scanner-cli-${SONAR_SCANNER_VERSION}-linux-x64.zip" \
+        -o /tmp/sonar-scanner.zip \
+    && unzip -q /tmp/sonar-scanner.zip -d /opt \
+    && mv "/opt/sonar-scanner-${SONAR_SCANNER_VERSION}-linux-x64" /opt/sonar-scanner \
+    && rm /tmp/sonar-scanner.zip \
+    && ln -s /opt/sonar-scanner/bin/sonar-scanner /usr/local/bin/sonar-scanner \
+    && sonar-scanner --version
+
+# ------------------------------------------------------------
+# JDK 17 (Backend Maven builds)
+# ------------------------------------------------------------
 
 ARG TARGETARCH=amd64
 ARG JDK17_VERSION=jdk-17.0.20.1%2B1
+
 RUN set -e; \
     case "$TARGETARCH" in \
         amd64) jdk_arch=x64 ;; \
         arm64) jdk_arch=aarch64 ;; \
         *) echo "Unsupported TARGETARCH: $TARGETARCH" >&2; exit 1 ;; \
     esac; \
-    curl -fsSL "https://api.adoptium.net/v3/binary/version/${JDK17_VERSION}/linux/${jdk_arch}/jdk/hotspot/normal/eclipse" \
+    curl -fsSL \
+        "https://api.adoptium.net/v3/binary/version/${JDK17_VERSION}/linux/${jdk_arch}/jdk/hotspot/normal/eclipse" \
         -o /tmp/jdk17.tgz; \
     mkdir -p /opt/java/jdk17; \
     tar -xzf /tmp/jdk17.tgz -C /opt/java/jdk17 --strip-components=1; \
     rm /tmp/jdk17.tgz; \
     /opt/java/jdk17/bin/java -version
 
-ARG MAVEN_VERSION=3.9.9
-RUN curl -fsSL "https://archive.apache.org/dist/maven/maven-3/${MAVEN_VERSION}/binaries/apache-maven-${MAVEN_VERSION}-bin.tar.gz" \
+# ------------------------------------------------------------
+# Maven 3.9.9
+# ------------------------------------------------------------
+
+RUN curl -fsSL \
+        "https://archive.apache.org/dist/maven/maven-3/${MAVEN_VERSION}/binaries/apache-maven-${MAVEN_VERSION}-bin.tar.gz" \
         -o /tmp/maven.tgz \
     && mkdir -p /opt/maven \
     && tar -xzf /tmp/maven.tgz -C /opt/maven --strip-components=1 \
-    && rm /tmp/maven.tgz
+    && rm /tmp/maven.tgz \
+    && /opt/maven/bin/mvn --version
 
 RUN jenkins-plugin-cli --plugins \
         configuration-as-code \
