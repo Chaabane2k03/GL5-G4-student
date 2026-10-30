@@ -1,0 +1,143 @@
+
+pipeline {
+    // Everything used to run in a maven-docker agent container. The per-service
+    // Jenkins controller (Dockerfile.jenkins) now provides JDK 17, Maven, the
+    // Docker CLI and the host Docker socket, so no extra agent is needed.
+    agent any
+
+    tools {
+        jdk 'JDK17'
+        maven 'Maven3'
+    }
+
+    environment {
+        DOCKER_HOST = 'unix:///var/run/docker.sock'
+        TESTCONTAINERS_HOST_OVERRIDE = 'host.docker.internal'
+        TESTCONTAINERS_RYUK_DISABLED = 'true'
+
+        IMAGE_NAME = 'eureka-server'
+        SONAR_PROJECT_KEY = 'eureka-server'
+    }
+
+    options {
+        timeout(time: 30, unit: 'MINUTES')
+    }
+
+    stages {
+        stage('Check Environment') {
+            steps {
+                sh '''
+                    if ! command -v docker >/dev/null 2>&1; then
+                        apt-get update
+                        apt-get install -y --no-install-recommends docker.io git
+                        rm -rf /var/lib/apt/lists/*
+                    fi
+
+                    java -version
+                    mvn -version
+                    docker --version
+                    git --version
+                '''
+            }
+        }
+
+        stage('Checkout Repository') {
+            steps {
+                sh '''
+                    git config --global --add safe.directory \
+                      /var/jenkins_home/workspace/Eureka-Server-CI
+
+                    if [ -d .git ]; then
+                        git fetch origin feature/eureka-server
+                        git checkout -B feature/eureka-server \
+                          origin/feature/eureka-server
+                    else
+                        git clone --branch feature/eureka-server \
+                          https://github.com/Chaabane2k03/GL5-G4-student.git .
+                    fi
+                '''
+            }
+        }
+
+        stage('Check Docker Access') {
+            steps {
+                sh 'docker info'
+            }
+        }
+
+        stage('Build and Test Eureka') {
+            steps {
+                sh '''
+                    mvn -B -f eureka-server/pom.xml clean verify
+                '''
+            }
+        }
+
+        stage('SonarQube Analysis') {
+            steps {
+                withSonarQubeEnv('SonarQube') {
+                    sh '''
+                        mvn -B -f eureka-server/pom.xml \
+                          org.sonarsource.scanner.maven:sonar-maven-plugin:sonar \
+                          -Dsonar.projectKey="$SONAR_PROJECT_KEY" \
+                          -Dsonar.projectName="Eureka Server"
+                    '''
+                }
+            }
+        }
+
+        stage('Quality Gate') {
+            steps {
+                timeout(time: 10, unit: 'MINUTES') {
+                    waitForQualityGate abortPipeline: true
+                }
+            }
+        }
+
+        stage('Build Docker Image') {
+            steps {
+                script {
+                    def shortSha = sh(
+                        script: 'git rev-parse --short HEAD',
+                        returnStdout: true
+                    ).trim()
+
+                    env.IMAGE_TAG = "${env.BUILD_NUMBER}-${shortSha}"
+                }
+
+                sh '''
+                    echo "Building ${IMAGE_NAME}:${IMAGE_TAG}"
+
+                    docker build \
+                      -f eureka-server/Dockerfile \
+                      -t "${IMAGE_NAME}:${IMAGE_TAG}" \
+                      -t "${IMAGE_NAME}:latest" \
+                      eureka-server
+
+                    docker images "${IMAGE_NAME}"
+                '''
+            }
+        }
+
+        
+    }
+
+    post {
+        always {
+            junit(
+                testResults: 'eureka-server/target/surefire-reports/TEST-*.xml',
+                allowEmptyResults: true
+            )
+
+            echo 'Pipeline execution finished.'
+        }
+
+        success {
+            echo 'Tests, SonarQube Quality Gate, Docker build and Trivy scan passed.'
+        }
+
+        failure {
+            echo 'Pipeline failed. Check the first failing stage and its console output.'
+        }
+    }
+}

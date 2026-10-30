@@ -1,0 +1,12 @@
+# Config Server import, active for every profile EXCEPT kubernetes.
+# The kubernetes profile runs without a Config Server (in-cluster config is
+# supplied by the Deployment env vars instead). Profile-specific documents
+# (application-kubernetes.properties) are loaded too late to disable the
+# import declared in application.properties, so the import itself must be
+# conditional: with SPRING_PROFILES_ACTIVE=kubernetes this document is
+# skipped and no config-server call is ever attempted.
+spring:
+  config:
+    activate:
+      on-profile: "!kubernetes"
+    import: "optional:configserver:${CONFIG_SERVER_URL:http://localhost:8071}"

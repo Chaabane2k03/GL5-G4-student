@@ -1,0 +1,62 @@
+{{- if .Values.observability.serviceMonitor.enabled }}
+{{- /*
+One ServiceMonitor per Spring service.
+
+The Actuator endpoints live under the servlet context path:
+  api-gateway          /actuator/prometheus
+  student-service      /student/actuator/prometheus
+  course-service       /course/actuator/prometheus
+  department-service   /department/actuator/prometheus
+  enrollment-service   /enrollment/actuator/prometheus
+
+The Prometheus installed by kube-prometheus-stack runs in the `observability`
+namespace and selects every ServiceMonitor (Terraform sets
+serviceMonitorSelectorNilUsesHelmValues = false). The matching NetworkPolicy
+is `allow-observability-scrape` in networkpolicies.yaml.
+*/ -}}
+{{- $sm := .Values.observability.serviceMonitor }}
+{{- $instance := .Release.Name }}
+{{- $components := list
+  (dict "key" "api-gateway")
+  (dict "key" "student-service")
+  (dict "key" "course-service")
+  (dict "key" "department-service")
+  (dict "key" "enrollment-service")
+}}
+{{- range $entry := $components }}
+{{- $component := index $.Values $entry.key }}
+{{- if $component.enabled }}
+{{- $name := default $entry.key $component.fullnameOverride }}
+{{- $contextPath := default "" $component.contextPath }}
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ $name }}
+  labels:
+    app.kubernetes.io/part-of: gl5-student
+    app.kubernetes.io/managed-by: {{ $.Release.Service }}
+    app.kubernetes.io/component: metrics
+    {{- with $sm.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  jobLabel: app.kubernetes.io/name
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ $name }}
+      app.kubernetes.io/instance: {{ $instance }}
+  endpoints:
+    - port: http
+      path: {{ printf "%s/actuator/prometheus" $contextPath | quote }}
+      interval: {{ $sm.interval }}
+      scrapeTimeout: {{ $sm.scrapeTimeout }}
+      relabelings:
+        # The Grafana dashboard groups every panel by the `application` label.
+        - sourceLabels:
+            - __meta_kubernetes_service_label_app_kubernetes_io_name
+          targetLabel: application
+          action: replace
+{{- end }}
+{{- end }}
+{{- end }}

@@ -1,0 +1,412 @@
+# Full local integration stack:
+#   Config Server (Git-backed config-repo) + Eureka registry + API Gateway
+#   + 4 microservices + their MySQL databases + Keycloak + Angular frontend.
+#
+#   docker compose up -d --build
+#   Frontend:           http://localhost:4200
+#   Keycloak:           http://localhost:8081  (admin / admin for local development)
+#   Eureka dashboard:   http://localhost:8761
+#   Config Server:      http://localhost:8071  (Basic Auth: CONFIG_USER / CONFIG_PASSWORD from config-server/.env)
+#
+# Services fetch their environment-specific configuration (datasource, jpa, eureka, context-path)
+# from the Config Server using the `docker` profile. Credentials are encrypted as {cipher}
+# values in the private config-repo and decrypted server-side by the Config Server.
+name: gl5-g4-student
+
+services:
+  # ------------------------------------------------------- config registry ---
+  config-server:
+    build:
+      context: ./config-server
+      dockerfile: Dockerfile
+    image: gl5-g4-config-server:local
+    container_name: gl5-config-server
+    # Resolve the host name used by the OTLP exporter (traces -> Jaeger).
+    # Required on Linux/Docker Engine; Docker Desktop resolves it natively.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    env_file:
+      - path: ./config-server/.env
+        format: raw
+    environment:
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://host.docker.internal:4318/v1/traces
+    ports:
+      - "8071:8071"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf -u \"$$CONFIG_USER:$$CONFIG_PASSWORD\" http://localhost:8071/actuator/health | grep -q UP"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 40s
+    networks:
+      - gl5-net
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------- registry --
+  eureka-server:
+    build:
+      context: ./eureka-server
+      dockerfile: Dockerfile
+    image: gl5-g4-eureka-server:local
+    container_name: gl5-eureka-server
+    # Resolve the host name used by the OTLP exporter (traces -> Jaeger).
+    # Required on Linux/Docker Engine; Docker Desktop resolves it natively.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    environment:
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://host.docker.internal:4318/v1/traces
+    ports:
+      - "8761:8761"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8761/actuator/health | grep -q '\"status\":\"UP\"' || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 40s
+    networks:
+      - gl5-net
+    restart: unless-stopped
+
+  # ------------------------------------------------------------- course ------
+  course-db:
+    image: mysql:8.0
+    container_name: gl5-course-db
+    environment:
+      MYSQL_ROOT_PASSWORD: rootpass
+      MYSQL_DATABASE: course_db
+      MYSQL_USER: course_user
+      MYSQL_PASSWORD: course_pass
+    ports:
+      - "3308:3306"
+    volumes:
+      - course-db-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -u root -p\"$$MYSQL_ROOT_PASSWORD\" --silent"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    networks:
+      - gl5-net
+    restart: unless-stopped
+
+  course-service:
+    build:
+      context: ./course-service
+      dockerfile: Dockerfile
+      args:
+        SERVER_PORT: 8084
+    image: gl5-g4-course-service:local
+    container_name: gl5-course-service
+    # Resolve the host name used by the OTLP exporter (traces -> Jaeger).
+    # Required on Linux/Docker Engine; Docker Desktop resolves it natively.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      config-server:
+        condition: service_healthy
+      course-db:
+        condition: service_healthy
+      eureka-server:
+        condition: service_started
+    env_file:
+      - path: ./config-server/.env
+        format: raw
+    environment:
+      SPRING_PROFILES_ACTIVE: docker
+      CONFIG_SERVER_URL: http://config-server:8071
+      EUREKA_URL: http://eureka-server:8761/eureka/
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://host.docker.internal:4318/v1/traces
+    ports:
+      - "8084:8084"
+    networks:
+      - gl5-net
+    restart: unless-stopped
+
+  # ----------------------------------------------------------- department ----
+  department-db:
+    image: mysql:8.4
+    container_name: gl5-department-db
+    environment:
+      MYSQL_DATABASE: departmentdb
+      MYSQL_USER: department
+      MYSQL_PASSWORD: department-dev-password
+      MYSQL_ROOT_PASSWORD: department-root-dev-password
+    ports:
+      - "3310:3306"
+    volumes:
+      - department-db-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -udepartment -p\"$$MYSQL_PASSWORD\" --silent"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 20s
+    networks:
+      - gl5-net
+    restart: unless-stopped
+
+  department-service:
+    build:
+      context: .
+      dockerfile: department-service/Dockerfile
+    image: gl5-g4-department-service:local
+    container_name: gl5-department-service
+    # Resolve the host name used by the OTLP exporter (traces -> Jaeger).
+    # Required on Linux/Docker Engine; Docker Desktop resolves it natively.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      config-server:
+        condition: service_healthy
+      department-db:
+        condition: service_healthy
+      eureka-server:
+        condition: service_started
+    env_file:
+      - path: ./config-server/.env
+        format: raw
+    environment:
+      SPRING_PROFILES_ACTIVE: docker
+      CONFIG_SERVER_URL: http://config-server:8071
+      EUREKA_URL: http://eureka-server:8761/eureka/
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://host.docker.internal:4318/v1/traces
+    ports:
+      - "8082:8082"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8082/department/actuator/health | grep -q '\"status\":\"UP\"' || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 60s
+    networks:
+      - gl5-net
+    restart: unless-stopped
+
+  # ----------------------------------------------------------- enrollment ----
+  enrollment-db:
+    image: mysql:8
+    container_name: gl5-enrollment-db
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: enrollmentdb
+    ports:
+      - "3307:3306"
+    volumes:
+      - enrollment-db-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-proot"]
+      interval: 5s
+      retries: 20
+    networks:
+      - gl5-net
+    restart: unless-stopped
+
+  enrollment-service:
+    build:
+      context: ./enrollment-service
+      dockerfile: Dockerfile
+    image: gl5-g4-enrollment-service:local
+    container_name: gl5-enrollment-service
+    # Resolve the host name used by the OTLP exporter (traces -> Jaeger).
+    # Required on Linux/Docker Engine; Docker Desktop resolves it natively.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      config-server:
+        condition: service_healthy
+      enrollment-db:
+        condition: service_healthy
+      eureka-server:
+        condition: service_started
+    env_file:
+      - path: ./config-server/.env
+        format: raw
+    environment:
+      SPRING_PROFILES_ACTIVE: docker
+      CONFIG_SERVER_URL: http://config-server:8071
+      EUREKA_URL: http://eureka-server:8761/eureka/
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://host.docker.internal:4318/v1/traces
+    ports:
+      - "8083:8083"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8083/enrollment/actuator/health | grep -q '\"status\":\"UP\"' || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 60s
+    networks:
+      - gl5-net
+    restart: unless-stopped
+
+  # -------------------------------------------------------------- student ----
+  student-db:
+    image: mysql:8.4
+    container_name: gl5-student-db
+    environment:
+      MYSQL_DATABASE: studentdb
+      MYSQL_USER: student
+      MYSQL_PASSWORD: student-dev-password
+      MYSQL_ROOT_PASSWORD: student-root-dev-password
+    ports:
+      - "3309:3306"
+    volumes:
+      - student-db-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -ustudent -p\"$$MYSQL_PASSWORD\" --silent"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 20s
+    networks:
+      - gl5-net
+    restart: unless-stopped
+
+  student-service:
+    build:
+      context: .
+      dockerfile: student-service/Dockerfile
+    image: gl5-g4-student-service:local
+    container_name: gl5-student-service
+    # Resolve the host name used by the OTLP exporter (traces -> Jaeger).
+    # Required on Linux/Docker Engine; Docker Desktop resolves it natively.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      config-server:
+        condition: service_healthy
+      student-db:
+        condition: service_healthy
+      eureka-server:
+        condition: service_started
+    env_file:
+      - path: ./config-server/.env
+        format: raw
+    environment:
+      SPRING_PROFILES_ACTIVE: docker
+      CONFIG_SERVER_URL: http://config-server:8071
+      EUREKA_URL: http://eureka-server:8761/eureka/
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://host.docker.internal:4318/v1/traces
+    ports:
+      - "8085:8085"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8085/student/actuator/health | grep -q '\"status\":\"UP\"' || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 60s
+    networks:
+      - gl5-net
+    restart: unless-stopped
+
+  # -------------------------------------------------------------- gateway ----
+  api-gateway:
+    build:
+      context: .
+      dockerfile: api-gateway/Dockerfile
+    image: gl5-g4-api-gateway:local
+    container_name: gl5-api-gateway
+    # Resolve the host name used by the OTLP exporter (traces -> Jaeger).
+    # Required on Linux/Docker Engine; Docker Desktop resolves it natively.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      config-server:
+        condition: service_healthy
+      eureka-server:
+        condition: service_started
+      course-service:
+        condition: service_started
+      department-service:
+        condition: service_healthy
+      enrollment-service:
+        condition: service_healthy
+      student-service:
+        condition: service_healthy
+      keycloak-service:
+        condition: service_started
+    env_file:
+      - path: ./config-server/.env
+        format: raw
+    environment:
+      SPRING_PROFILES_ACTIVE: docker
+      CONFIG_SERVER_URL: http://config-server:8071
+      EUREKA_URL: http://eureka-server:8761/eureka/
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://host.docker.internal:4318/v1/traces
+      MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE: health,info,gateway,prometheus
+      KEYCLOAK_ISSUER_URI: http://localhost:8081/realms/gl5
+      JWK_SET_URI: http://keycloak-service:8080/realms/gl5/protocol/openid-connect/certs
+    ports:
+      - "8072:8072"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8072/actuator/health | grep -q '\"status\":\"UP\"' || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 60s
+    networks:
+      gl5-net:
+        aliases:
+          - api-gateway
+    restart: unless-stopped
+
+  # ------------------------------------------------------------- frontend ----
+  frontend-service:
+    build:
+      context: ./frontend-service
+      dockerfile: Dockerfile
+    image: gl5-g4-frontend-service:local
+    container_name: gl5-frontend-service
+    depends_on:
+      api-gateway:
+        condition: service_started
+      keycloak-service:
+        condition: service_started
+    environment:
+      API_BASE_URL: ${API_BASE_URL:-http://localhost:8072}
+      KEYCLOAK_URL: ${KEYCLOAK_URL:-http://localhost:8081}
+      KEYCLOAK_REALM: ${KEYCLOAK_REALM:-gl5}
+      KEYCLOAK_CLIENT_ID: ${KEYCLOAK_CLIENT_ID:-cursus-frontend}
+    ports:
+      - "${FRONTEND_PORT:-4200}:8080"
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+    networks:
+      - gl5-net
+    restart: unless-stopped
+
+  # ------------------------------------------------------------- keycloak ----
+  keycloak-service:
+    image: quay.io/keycloak/keycloak:26.8.1
+    container_name: gl5-keycloak-service
+    command:
+      - start-dev
+      - --import-realm
+      - --http-port=8080
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: ${KEYCLOAK_ADMIN:-admin}
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:-admin}
+    ports:
+      - "${KEYCLOAK_PORT:-8081}:8080"
+    volumes:
+      - ./frontend-service/keycloak/realm-gl5.json:/opt/keycloak/data/import/realm-gl5.json:ro
+      - ./frontend-service/keycloak/themes:/opt/keycloak/themes:ro
+    networks:
+      gl5-net:
+        aliases:
+          - keycloak
+    restart: unless-stopped
+
+networks:
+  gl5-net:
+    driver: bridge
+
+volumes:
+  course-db-data:
+  department-db-data:
+  enrollment-db-data:
+  student-db-data:

@@ -1,0 +1,82 @@
+# ---------------------------------------------------------------------------
+# Keycloak identity provider.
+#
+# The API Gateway is an OAuth2 Resource Server (spring.security.oauth2.
+# resourceserver.jwt.issuer-uri). It validates the audience of the token
+# against `gateway.security.audience` and reads the authorities from the
+# realm roles, which the gateway normalises to ROLE_ADMIN / ROLE_TEACHER /
+# ROLE_STUDENT.
+#
+# Keycloak stays inside the cluster: only the frontend is exposed by the
+# Ingress.
+# ---------------------------------------------------------------------------
+
+replicaCount: 1
+
+image:
+  repository: quay.io/keycloak/keycloak
+  tag: "26.0"
+  pullPolicy: IfNotPresent
+
+imagePullSecrets: []
+
+# Credentials of the Keycloak administrator (the master realm).
+adminUser: admin
+adminPassword: admin-admin-password
+
+# The hostname Keycloak publishes in the `iss` claim of the tokens. It has to
+# match the issuer configured on the API Gateway
+# (KEYCLOAK_ISSUER_URI), otherwise the token is rejected.
+hostname: http://keycloak:8080
+
+service:
+  type: ClusterIP
+  port: 8080
+  annotations: {}
+  labels: {}
+
+persistence:
+  enabled: true
+  size: 1Gi
+  storageClass: ""
+
+# Development database of Keycloak itself. On EKS this is replaced by a
+# managed PostgreSQL instance.
+db:
+  vendor: dev-file
+
+# Realm provisioned on the first start of Keycloak.
+realm:
+  name: gl5
+  # Client the tokens are requested for. It is also the audience the API
+  # Gateway expects, which is why the audience mapper below adds it to the
+  # `aud` claim.
+  clientId: api-gateway
+  # Demo users, one per role.
+  users:
+    - username: admin
+      password: admin
+      roles:
+        - ADMIN
+    - username: teacher
+      password: teacher
+      roles:
+        - TEACHER
+    - username: student
+      password: student
+      roles:
+        - STUDENT
+
+javaOpts: "-XX:MaxRAMPercentage=70"
+
+resources:
+  requests:
+    cpu: 200m
+    memory: 512Mi
+  limits:
+    cpu: "1"
+    memory: 1Gi
+
+nodeSelector: {}
+tolerations: []
+affinity: {}

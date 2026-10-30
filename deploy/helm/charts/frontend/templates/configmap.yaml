@@ -1,0 +1,31 @@
+{{- if .Values.staticContent.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "frontend.fullname" . }}-static
+  labels:
+    {{- include "frontend.labels" . | nindent 4 }}
+data:
+  {{- range $path, $content := .Values.staticContent.files }}
+  {{ $path }}: |
+    {{- $content | nindent 4 }}
+  {{- end }}
+---
+{{- end }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "frontend.fullname" . }}-runtime
+  labels:
+    {{- include "frontend.labels" . | nindent 4 }}
+data:
+  config.json: |
+    {
+      "apiBaseUrl": {{ .Values.runtime.apiBaseUrl | quote }},
+      "keycloak": {
+        "url": {{ .Values.runtime.keycloakUrl | quote }},
+        "realm": {{ .Values.runtime.keycloakRealm | quote }},
+        "clientId": {{ .Values.runtime.keycloakClientId | quote }},
+        "pkceMethod": {{ .Values.runtime.pkceMethod | toJson }}
+      }
+    }

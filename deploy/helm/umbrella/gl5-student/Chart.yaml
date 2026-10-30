@@ -1,0 +1,63 @@
+apiVersion: v2
+name: gl5-student
+description: >-
+  Umbrella chart for the GL5-G4 Student application namespace. It deploys the
+  Nginx frontend, the API Gateway, the four business microservices and their
+  MySQL databases, and owns the cross-component resources: NetworkPolicies
+  (default deny + explicit allows), the RDS ExternalName Services used on EKS
+  and the External Secrets synchronised from AWS Secrets Manager.
+type: application
+version: 0.1.0
+appVersion: "1.0.0"
+dependencies:
+  - name: frontend
+    version: 0.1.0
+    repository: file://../../charts/frontend
+  - name: keycloak
+    version: 0.1.0
+    repository: file://../../charts/keycloak
+  - name: microservice
+    version: 0.1.0
+    repository: file://../../charts/microservice
+    alias: api-gateway
+    condition: api-gateway.enabled
+  - name: microservice
+    version: 0.1.0
+    repository: file://../../charts/microservice
+    alias: student-service
+    condition: student-service.enabled
+  - name: microservice
+    version: 0.1.0
+    repository: file://../../charts/microservice
+    alias: course-service
+    condition: course-service.enabled
+  - name: microservice
+    version: 0.1.0
+    repository: file://../../charts/microservice
+    alias: department-service
+    condition: department-service.enabled
+  - name: microservice
+    version: 0.1.0
+    repository: file://../../charts/microservice
+    alias: enrollment-service
+    condition: enrollment-service.enabled
+  - name: mysql
+    version: 0.1.0
+    repository: file://../../charts/mysql
+    alias: student-db
+    condition: student-db.enabled
+  - name: mysql
+    version: 0.1.0
+    repository: file://../../charts/mysql
+    alias: course-db
+    condition: course-db.enabled
+  - name: mysql
+    version: 0.1.0
+    repository: file://../../charts/mysql
+    alias: department-db
+    condition: department-db.enabled
+  - name: mysql
+    version: 0.1.0
+    repository: file://../../charts/mysql
+    alias: enrollment-db
+    condition: enrollment-db.enabled

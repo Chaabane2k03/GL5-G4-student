@@ -1,0 +1,299 @@
+# ---------------------------------------------------------------------------
+# Angular frontend image served by Nginx.
+# ---------------------------------------------------------------------------
+
+replicaCount: 2
+
+image:
+  repository: gl5-g4-frontend-service
+  tag: local
+  pullPolicy: IfNotPresent
+
+imagePullSecrets: []
+
+podAnnotations: {}
+podLabels: {}
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 101
+  runAsGroup: 101
+  fsGroup: 101
+  seccompProfile:
+    type: RuntimeDefault
+
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: false
+  capabilities:
+    drop:
+      - ALL
+
+service:
+  type: ClusterIP
+  port: 8080
+  annotations: {}
+  labels: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+  automountServiceAccountToken: false
+
+containerPort: 8080
+
+runtime:
+  apiBaseUrl: /api
+  keycloakUrl: /auth
+  keycloakRealm: gl5
+  keycloakClientId: cursus-frontend
+  # Production and Docker Compose keep PKCE enabled. The Minikube HTTP values
+  # explicitly override this to false.
+  pkceMethod: S256
+
+ingress:
+  enabled: true
+  # nginx on Minikube, alb on EKS (AWS Load Balancer Controller).
+  className: nginx
+  host: gl5-g4.local
+  annotations: {}
+  path: /
+  pathType: Prefix
+  tls:
+    enabled: false
+    secretName: ""
+
+# Static files served by Nginx. On Minikube this is a small authenticated API
+# console; in production `image.repository` points at the image built from
+# the real frontend repository and this block is disabled.
+staticContent:
+  enabled: false
+  files:
+    index.html: |
+      <!DOCTYPE html>
+      <html lang="en">
+      <head>
+        <meta charset="utf-8">
+        <title>GL5-G4 Student Platform</title>
+        <style>
+          body { font-family: system-ui, sans-serif; margin: 2rem auto; max-width: 58rem; color: #1f2933; }
+          h1 { font-size: 1.6rem; }
+          h2 { margin-top: 2rem; font-size: 1.1rem; }
+          code { background: #f4f6f8; padding: .1rem .3rem; border-radius: 3px; }
+          input, select, button { padding: .5rem; border-radius: 4px; border: 1px solid #9aa5b1; }
+          button { border-color: #2b6cb0; background: #2b6cb0; color: #fff; cursor: pointer; }
+          button:disabled { opacity: .55; cursor: wait; }
+          .controls { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; }
+          .form-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr)); gap: .5rem; }
+          textarea { width: 100%; min-height: 8rem; font: .9rem monospace; box-sizing: border-box; }
+          .status { color: #52606d; }
+          pre { background: #f4f6f8; padding: 1rem; border-radius: 4px; overflow-x: auto; }
+        </style>
+      </head>
+      <body>
+        <h1>GL5-G4 Student Management Platform</h1>
+        <p>
+          This placeholder page is served by the Nginx frontend. Requests under
+          <code>/api</code> are relayed to the internal API Gateway, which
+          routes them to the four business microservices.
+        </p>
+        <h2>Authentication</h2>
+        <div class="controls">
+          <label>User
+            <select id="user">
+              <option value="student">student</option>
+              <option value="teacher">teacher</option>
+              <option value="admin">admin</option>
+            </select>
+          </label>
+          <input id="password" type="password" value="student" aria-label="Password">
+          <button onclick="login()">Sign in</button>
+          <button onclick="logout()">Sign out</button>
+          <span id="authStatus" class="status">Not signed in</span>
+        </div>
+        <h2>CRUD console</h2>
+        <p class="status">Sign in as <code>admin/admin</code> to create, update, and delete records.
+          Service-to-service checks run when courses validate departments and enrollments validate students and courses.</p>
+        <div class="form-grid">
+          <label>Resource
+            <select id="resource" onchange="selectResource()">
+              <option value="department">Department</option>
+              <option value="course">Course</option>
+              <option value="student">Student</option>
+              <option value="enrollment">Enrollment</option>
+            </select>
+          </label>
+          <label>Record ID (for get/update/delete)
+            <input id="recordId" placeholder="e.g. 1">
+          </label>
+        </div>
+        <p class="controls">
+          <button onclick="executeCrud('list')">List</button>
+          <button onclick="executeCrud('get')">Get by ID</button>
+          <button onclick="executeCrud('create')">Create</button>
+          <button onclick="executeCrud('update')">Update</button>
+          <button onclick="executeCrud('delete')">Delete</button>
+        </p>
+        <label>JSON body (used for create/update)</label>
+        <textarea id="body"></textarea>
+        <p id="resourceHelp" class="status"></p>
+        <pre id="out">-</pre>
+        <script>
+          let accessToken = sessionStorage.getItem('gl5AccessToken') || '';
+          const out = document.getElementById('out');
+          const authStatus = document.getElementById('authStatus');
+
+          function setAuthStatus(message) {
+            authStatus.textContent = message;
+          }
+
+          async function login() {
+            const username = document.getElementById('user').value;
+            const password = document.getElementById('password').value;
+            const body = new URLSearchParams({
+              grant_type: 'password',
+              client_id: 'api-gateway',
+              username,
+              password
+            });
+            out.textContent = 'Signing in ...';
+            try {
+              const response = await fetch('/auth/realms/gl5/protocol/openid-connect/token', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                body
+              });
+              const payload = await response.json();
+              if (!response.ok) throw new Error(payload.error_description || response.statusText);
+              accessToken = payload.access_token;
+              sessionStorage.setItem('gl5AccessToken', accessToken);
+              setAuthStatus('Signed in as ' + username);
+              out.textContent = 'Sign-in successful. Select a CRUD operation.';
+            } catch (error) {
+              accessToken = '';
+              sessionStorage.removeItem('gl5AccessToken');
+              setAuthStatus('Sign-in failed');
+              out.textContent = 'Authentication error: ' + error.message;
+            }
+          }
+
+          function logout() {
+            accessToken = '';
+            sessionStorage.removeItem('gl5AccessToken');
+            setAuthStatus('Not signed in');
+            out.textContent = 'Signed out.';
+          }
+
+          const resources = {
+            department: {
+              list: '/api/department/api/departments',
+              item: '/api/department/api/departments/{id}',
+              create: '/api/department/api/departments',
+              update: '/api/department/api/departments/{id}',
+              delete: '/api/department/api/departments/{id}',
+              example: { name: 'Computer Science', location: 'Building A', phone: '+21670000000', head: 'Dr Demo' },
+              help: 'Department CRUD. Courses call this service to validate departmentId.'
+            },
+            course: {
+              list: '/api/course/api/courses',
+              item: '/api/course/api/courses/{id}',
+              create: '/api/course/api/courses',
+              update: '/api/course/api/courses/{id}',
+              delete: '/api/course/api/courses/{id}',
+              example: { code: 'CS-101', title: 'Distributed Systems', description: 'Service communication demo', credits: 3, departmentId: 1 },
+              help: 'Course CRUD. Set departmentId to an existing department to test the course -> department call.'
+            },
+            student: {
+              list: '/api/student/students/getAllStudents',
+              item: '/api/student/students/getStudent/{id}',
+              create: '/api/student/students/createStudent',
+              update: '/api/student/students/updateStudent',
+              delete: '/api/student/students/deleteStudent/{id}',
+              example: { firstName: 'Demo', lastName: 'Student', email: 'demo.student@example.com', phone: '+21671000000', dateOfBirth: '2000-01-01', address: 'Tunis', departmentId: 1 },
+              help: 'Student CRUD. Set departmentId to an existing department to test the student -> department call.'
+            },
+            enrollment: {
+              list: '/api/enrollment/Enrollment/getAllEnrollment',
+              item: '/api/enrollment/Enrollment/getEnrollment/{id}',
+              create: '/api/enrollment/Enrollment/createEnrollment',
+              update: '/api/enrollment/Enrollment/updateEnrollment',
+              delete: '/api/enrollment/Enrollment/deleteEnrollment/{id}',
+              example: { enrollmentDate: '2026-01-15', grade: 15, status: 'IN_PROGRESS', studentId: 1, courseId: 1 },
+              help: 'Enrollment CRUD. studentId and courseId are validated through the student and course services.'
+            }
+          };
+
+          function selectResource() {
+            const resource = resources[document.getElementById('resource').value];
+            document.getElementById('body').value = JSON.stringify(resource.example, null, 2);
+            document.getElementById('resourceHelp').textContent = resource.help;
+          }
+
+          async function executeCrud(operation) {
+            if (!accessToken) {
+              out.textContent = 'Sign in before using the CRUD console.';
+              return;
+            }
+            const resource = resources[document.getElementById('resource').value];
+            const id = document.getElementById('recordId').value.trim();
+            let path = operation === 'list' ? resource.list : resource.item?.replace('{id}', id);
+            if (operation === 'create' && resource.create) path = resource.create;
+            if (operation === 'update' && resource.update) path = resource.update;
+            if (operation === 'delete' && resource.delete) path = resource.delete.replace('{id}', id);
+            if (!path || ((operation === 'get' || operation === 'update' || operation === 'delete') && !id)) {
+              out.textContent = 'Provide a record ID for this operation.';
+              return;
+            }
+            const options = {
+              method: operation === 'list' || operation === 'get' ? 'GET' :
+                operation === 'create' ? 'POST' :
+                operation === 'update' ? 'PUT' : 'DELETE',
+              headers: { Authorization: 'Bearer ' + accessToken }
+            };
+            if (options.method === 'POST' || options.method === 'PUT') {
+              options.headers['Content-Type'] = 'application/json';
+              try {
+                options.body = JSON.stringify(JSON.parse(document.getElementById('body').value));
+              } catch (error) {
+                out.textContent = 'Invalid JSON body: ' + error.message;
+                return;
+              }
+            }
+            out.textContent = options.method + ' ' + path + ' ...';
+            try {
+              const response = await fetch(path, options);
+              out.textContent = response.status + ' ' + response.statusText + '\n\n' + await response.text();
+            } catch (e) {
+              out.textContent = 'error: ' + e;
+            }
+          }
+
+          selectResource();
+          if (accessToken) setAuthStatus('Signed in (session token)');
+        </script>
+      </body>
+      </html>
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 64Mi
+  limits:
+    cpu: 300m
+    memory: 256Mi
+
+lifecycle:
+  preStop:
+    enabled: true
+    exec:
+      command:
+        - /bin/sh
+        - -c
+        - sleep 5
+
+terminationGracePeriodSeconds: 30
+
+nodeSelector: {}
+tolerations: []
+affinity: {}

@@ -1,0 +1,12 @@
+target/
+.git/
+.idea/
+*.iml
+.vscode/
+.env
+.env.example
+README.md
+Dockerfile
+Dockerfile.jenkins
+docker-compose*.yml
+jenkins/

@@ -1,0 +1,71 @@
+# ---------------------------------------------------------------------------
+# MySQL database of a single microservice.
+#
+# The Service name is what the applications use in their JDBC URL
+# (jdbc:mysql://<fullname>:3306/<database>), so `fullnameOverride` is normally
+# pinned to the name expected by the application-kubernetes profile of the
+# service (student-db, course-db, department-db, enrollment-db).
+# ---------------------------------------------------------------------------
+
+nameOverride: ""
+fullnameOverride: ""
+
+image:
+  repository: mysql
+  tag: "8.4"
+  pullPolicy: IfNotPresent
+
+imagePullSecrets: []
+
+# Database created at first start, and application user owning it.
+database: ""
+username: ""
+# Credentials of the application user.
+password: ""
+# Credentials of the root user.
+rootPassword: ""
+
+# Use a pre-existing Secret instead of the one created by this chart (on EKS
+# the Secret is synchronised from AWS Secrets Manager by External Secrets
+# Operator). It must contain the keys mysql-database, mysql-user,
+# mysql-password and mysql-root-password.
+existingSecret: ""
+secretAnnotations: {}
+
+service:
+  port: 3306
+  annotations: {}
+  labels: {}
+
+# Extra flags given to the MySQL server, e.g. to shrink the InnoDB buffer pool
+# on a development cluster:
+#   config:
+#     args:
+#       - --innodb-buffer-pool-size=64M
+config:
+  args: []
+
+persistence:
+  enabled: true
+  size: 1Gi
+  # Empty means the cluster default StorageClass (local-path on Minikube, gp3
+  # or gp2 on EKS).
+  storageClass: ""
+  accessModes:
+    - ReadWriteOnce
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 256Mi
+  limits:
+    cpu: "1"
+    memory: 1Gi
+
+# The database needs a moment to shut down cleanly before the volume is
+# detached.
+terminationGracePeriodSeconds: 60
+
+nodeSelector: {}
+tolerations: []
+affinity: {}

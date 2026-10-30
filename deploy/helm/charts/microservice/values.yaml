@@ -1,0 +1,179 @@
+# ---------------------------------------------------------------------------
+# Default values for the generic microservice chart.
+#
+# The chart is intentionally parameter-free on the Spring side: everything the
+# application needs is injected as environment variables, either through
+#   - `env`       : plain (non-sensitive) values,
+#   - `config`    : rendered into a ConfigMap and exposed with envFrom,
+#   - `secretData`: rendered into a Secret and exposed with envFrom.
+#
+# The Kubernetes profile shipped with each service (application-kubernetes.*)
+# supplies the defaults, so only the cluster-specific values (datasource URL,
+# downstream URLs, OTLP endpoint) have to be set per instance.
+# ---------------------------------------------------------------------------
+
+# Overrides the chart name. `fullnameOverride` is what actually names the
+# Kubernetes objects, and therefore what the Service DNS name becomes
+# (e.g. "student-service"). Set it whenever another component addresses the
+# service by name (gateway routes, frontend proxy_pass, JDBC URLs).
+nameOverride: ""
+fullnameOverride: ""
+
+# Labels shared by every object of the release.
+partOf: gl5-student
+component: microservice
+
+replicaCount: 1
+
+image:
+  repository: ""
+  tag: "latest"
+  pullPolicy: IfNotPresent
+
+# Only needed on EKS when the node role cannot pull from ECR on its own, or on
+# Minikube when the image is published to a private registry instead of a
+# public one.
+imagePullSecrets: []
+
+serviceAccount:
+  create: true
+  # Defaults to the fullname when empty.
+  name: ""
+  # IRSA on EKS: eks.amazonaws.com/role-arn: arn:aws:iam::<account>:role/<role>
+  annotations: {}
+  # The application never talks to the Kubernetes API, so the token is not
+  # mounted unless something explicitly asks for it.
+  automountServiceAccountToken: false
+
+podAnnotations: {}
+podLabels: {}
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  runAsGroup: 1000
+  fsGroup: 1000
+  seccompProfile:
+    type: RuntimeDefault
+
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: false
+  capabilities:
+    drop:
+      - ALL
+
+service:
+  type: ClusterIP
+  # Port exposed by the Service; the cluster DNS name is <fullname>.<ns>.svc.
+  port: 80
+  # Defaults to `containerPort` when empty.
+  targetPort: ""
+  annotations: {}
+  labels: {}
+
+# Port the JVM listens on inside the container.
+containerPort: 8080
+
+# Servlet context path of the service, e.g. "/student". It is prefixed to the
+# Actuator probe paths because the management endpoints live under it
+# (/student/actuator/health/liveness).
+contextPath: ""
+
+# Plain environment variables rendered directly in the pod spec. They take
+# precedence over the ConfigMap/Secret entries exposed with envFrom.
+env: {}
+
+# Same as `env` but with the full Kubernetes env entry syntax (valueFrom...).
+extraEnv: []
+
+# Non-sensitive configuration, rendered into the ConfigMap below.
+config: {}
+
+# Sensitive configuration, rendered into the Secret below.
+secretData: {}
+
+configMap:
+  create: true
+  # Use a pre-existing ConfigMap instead (e.g. managed by External Secrets
+  # Operator): the chart then neither creates nor consumes its own one.
+  existing: ""
+  annotations: {}
+
+secret:
+  create: true
+  # Use a pre-existing Secret instead (e.g. synchronised from AWS Secrets
+  # Manager by External Secrets Operator).
+  existing: ""
+  annotations: {}
+  type: Opaque
+
+resources:
+  requests:
+    cpu: 200m
+    memory: 512Mi
+  limits:
+    cpu: "1"
+    memory: 1Gi
+
+# Passed to the JVM through JAVA_TOOL_OPTIONS, which every JVM reads whatever
+# the entrypoint of the image is. MaxRAMPercentage keeps the heap proportional
+# to the container memory limit instead of the host memory.
+javaOpts: "-XX:MaxRAMPercentage=70 -XX:+ExitOnOutOfMemoryError"
+
+probes:
+  liveness:
+    enabled: true
+    path: /actuator/health/liveness
+    initialDelaySeconds: 60
+    periodSeconds: 15
+    timeoutSeconds: 5
+    failureThreshold: 4
+  readiness:
+    enabled: true
+    path: /actuator/health/readiness
+    initialDelaySeconds: 30
+    periodSeconds: 10
+    timeoutSeconds: 3
+    failureThreshold: 6
+  startup:
+    enabled: true
+    path: /actuator/health
+    initialDelaySeconds: 30
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 30
+
+# Graceful shutdown: Spring Boot stops accepting new requests on SIGTERM and
+# lets the in-flight ones finish (spring.lifecycle.timeout-per-shutdown-phase).
+# The preStop hook keeps the pod alive a few seconds after the endpoints are
+# removed from the Service, so the load balancer can drain it first.
+lifecycle:
+  preStop:
+    enabled: true
+    exec:
+      command:
+        - /bin/sh
+        - -c
+        - sleep 10
+
+terminationGracePeriodSeconds: 40
+
+autoscaling:
+  enabled: false
+  minReplicas: 2
+  maxReplicas: 6
+  targetCPUUtilizationPercentage: 70
+  targetMemoryUtilizationPercentage: ""
+  behavior: {}
+
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1
+  maxUnavailable: ""
+
+nodeSelector: {}
+tolerations: []
+affinity: {}
+topologySpreadConstraints: []
+priorityClassName: ""

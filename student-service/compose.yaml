@@ -1,0 +1,37 @@
+services:
+  mysql:
+    image: mysql:8.4
+    environment:
+      MYSQL_DATABASE: studentdb
+      MYSQL_USER: student
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-student-dev-password}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-student-root-dev-password}
+    ports:
+      - "3309:3306"
+    volumes:
+      - student-mysql-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -ustudent -p\"$$MYSQL_PASSWORD\" --silent"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 20s
+
+  student-service:
+    image: ${DOCKER_IMAGE:-gl5-g4-student-service}:${BUILD_NUMBER:-local}
+    build:
+      context: ..
+      dockerfile: student-service/Dockerfile
+    depends_on:
+      mysql:
+        condition: service_healthy
+    environment:
+      SERVER_PORT: 8085
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/studentdb?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC
+      SPRING_DATASOURCE_USERNAME: student
+      SPRING_DATASOURCE_PASSWORD: ${MYSQL_PASSWORD:-student-dev-password}
+    ports:
+      - "8085:8085"
+
+volumes:
+  student-mysql-data:

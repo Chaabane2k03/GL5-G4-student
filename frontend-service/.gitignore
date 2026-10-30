@@ -1,0 +1,16 @@
+node_modules/
+dist/
+build/
+coverage/
+.angular/
+.scannerwork/
+.DS_Store
+*.log
+.env
+.env.*
+!.env.example
+.vscode/
+.idea/
+*.tsbuildinfo
+Thumbs.db
+.eslintcache

@@ -1,0 +1,253 @@
+pipeline {
+    agent any
+
+    options {
+        timeout(time: 45, unit: 'MINUTES')
+        disableConcurrentBuilds()
+        buildDiscarder(logRotator(numToKeepStr: '10'))
+        skipDefaultCheckout(true)
+    }
+
+    parameters {
+        string(name: 'SERVICE_DIR',      defaultValue: 'frontend-service', description: 'Path to the frontend service')
+        string(name: 'IMAGE_NAME',       defaultValue: 'gl5-g4-frontend-service', description: 'Docker image repository name')
+        string(name: 'SONAR_HOST_URL',   defaultValue: 'http://host.docker.internal:9000', description: 'SonarQube URL as seen from this controller')
+        string(name: 'SMOKE_HOST',       defaultValue: 'host.docker.internal', description: 'Host used to reach the smoke container')
+        string(name: 'SMOKE_PORT',       defaultValue: '4300', description: 'Host port for the frontend smoke container')
+        booleanParam(name: 'PUBLISH_TO_NEXUS', defaultValue: false, description: 'Push the built image to the local Nexus Docker registry')
+        string(name: 'NEXUS_DOCKER_REGISTRY', defaultValue: 'host.docker.internal:8087', description: 'Nexus Docker connector as seen from Jenkins')
+        string(name: 'NEXUS_DOCKER_REPOSITORY', defaultValue: 'docker-hosted', description: 'Nexus Docker hosted repository name')
+    }
+
+    environment {
+        SERVICE_DIR  = "${params.SERVICE_DIR}"
+        IMAGE_NAME   = "${params.IMAGE_NAME}"
+        IMAGE_TAG    = "${env.BUILD_NUMBER}"
+        SONAR_HOST_URL = "${params.SONAR_HOST_URL}"
+        SMOKE_HOST   = "${params.SMOKE_HOST}"
+        SMOKE_PORT   = "${params.SMOKE_PORT}"
+        NEXUS_DOCKER_REGISTRY = "${params.NEXUS_DOCKER_REGISTRY}"
+        NEXUS_DOCKER_REPOSITORY = "${params.NEXUS_DOCKER_REPOSITORY}"
+    }
+
+    stages {
+        stage('Checkout') {
+            steps {
+                deleteDir()
+                checkout scm
+            }
+        }
+
+        stage('Install') {
+            steps {
+                dir(env.SERVICE_DIR) {
+                    sh 'npm ci --no-audit --no-fund'
+                }
+            }
+        }
+
+        stage('Lint') {
+            steps {
+                dir(env.SERVICE_DIR) {
+                    sh 'npm run lint'
+                }
+            }
+        }
+
+        stage('Test & Coverage') {
+            steps {
+                dir(env.SERVICE_DIR) {
+                    sh 'npm run test:ci'
+                    sh 'npm run coverage:normalize'
+                }
+            }
+        }
+
+        stage('Build') {
+            steps {
+                dir(env.SERVICE_DIR) {
+                    sh 'npm run build'
+                }
+            }
+        }
+
+        stage('Static Analysis (SonarQube)') {
+            steps {
+                dir(env.SERVICE_DIR) {
+                    withCredentials([string(credentialsId: 'sonar-token', variable: 'SONAR_TOKEN')]) {
+                        sh '''
+                            set -eu
+                            unset NODE_OPTIONS
+                            sonar-scanner \
+                                -Dsonar.host.url="$SONAR_HOST_URL" \
+                                -Dsonar.token="$SONAR_TOKEN" \
+                                -Dsonar.javascript.node.maxspace=2048 \
+                                -Dsonar.working.directory=.scannerwork
+                        '''
+                    }
+                }
+            }
+        }
+
+        stage('Quality Gate') {
+            steps {
+                dir(env.SERVICE_DIR) {
+                    withCredentials([string(credentialsId: 'sonar-token', variable: 'SONAR_TOKEN')]) {
+                        timeout(time: 10, unit: 'MINUTES') {
+                            sh '''
+                                set -euo pipefail
+
+                                REPORT=".scannerwork/report-task.txt"
+                                if [ ! -f "$REPORT" ]; then
+                                  echo "ERROR: $REPORT is missing - the scanner did not submit an analysis"
+                                  exit 1
+                                fi
+
+                                TASK_ID=$(sed -n 's/^ceTaskId=//p' "$REPORT" | head -n1)
+                                if [ -z "$TASK_ID" ]; then
+                                  echo "ERROR: no ceTaskId in $REPORT"
+                                  exit 1
+                                fi
+
+                                AUTH=$(printf '%s:' "$SONAR_TOKEN" | base64 | tr -d '\\n')
+                                sonar_api() { curl -fsS -H "Authorization: Basic $AUTH" "$SONAR_HOST_URL$1"; }
+
+                                echo "Waiting for analysis task $TASK_ID ..."
+                                ANALYSIS_ID=""
+                                for _ in $(seq 1 60); do
+                                  TASK=$(sonar_api "/api/ce/task?id=$TASK_ID")
+                                  TASK_STATUS=$(printf '%s' "$TASK" | jq -r '.task.status')
+                                  case "$TASK_STATUS" in
+                                    SUCCESS)
+                                      ANALYSIS_ID=$(printf '%s' "$TASK" | jq -r '.task.analysisId')
+                                      break
+                                      ;;
+                                    FAILED|CANCELED)
+                                      echo "ERROR: analysis task $TASK_ID ended in $TASK_STATUS"
+                                      exit 1
+                                      ;;
+                                    *)
+                                      sleep 5
+                                      ;;
+                                  esac
+                                done
+
+                                if [ -z "$ANALYSIS_ID" ] || [ "$ANALYSIS_ID" = "null" ]; then
+                                  echo "ERROR: analysis task $TASK_ID did not finish in time"
+                                  exit 1
+                                fi
+
+                                GATE=$(sonar_api "/api/qualitygates/project_status?analysisId=$ANALYSIS_ID")
+                                printf '%s' "$GATE" | jq -r \
+                                  '.projectStatus.conditions[]? | "  \\(.metricKey): \\(.status) (actual=\\(.actualValue // "-"), threshold=\\(.errorThreshold // "-"))"'
+                                GATE_STATUS=$(printf '%s' "$GATE" | jq -r '.projectStatus.status')
+
+                                case "$GATE_STATUS" in
+                                  OK|WARN)
+                                    echo "Quality gate: $GATE_STATUS"
+                                    ;;
+                                  *)
+                                    echo "ERROR: quality gate: $GATE_STATUS"
+                                    exit 1
+                                    ;;
+                                esac
+                            '''
+                        }
+                    }
+                }
+            }
+        }
+
+        stage('Docker Build') {
+            steps {
+                dir(env.SERVICE_DIR) {
+                    sh "docker build -t ${env.IMAGE_NAME}:${env.IMAGE_TAG} -t ${env.IMAGE_NAME}:latest ."
+                }
+            }
+        }
+
+        stage('Smoke Test') {
+            steps {
+                dir(env.SERVICE_DIR) {
+                    sh '''
+                        set -eu
+                        docker rm -f frontend-smoke >/dev/null 2>&1 || true
+                        docker run -d --name frontend-smoke \
+                          --add-host api-gateway:127.0.0.1 \
+                          --add-host keycloak:127.0.0.1 \
+                          -p "${SMOKE_PORT}:8080" \
+                          "${IMAGE_NAME}:${IMAGE_TAG}"
+
+                        ok=0
+                        for i in $(seq 1 30); do
+                          if curl -fsS "http://${SMOKE_HOST}:${SMOKE_PORT}/health" >/dev/null; then
+                            ok=1
+                            break
+                          fi
+                          sleep 2
+                        done
+
+                        if [ "$ok" != "1" ]; then
+                          echo "Frontend did not become healthy on port ${SMOKE_PORT}"
+                          docker logs frontend-smoke || true
+                          exit 1
+                        fi
+
+                        curl -fsS "http://${SMOKE_HOST}:${SMOKE_PORT}/config.json" \
+                          | jq -e '.apiBaseUrl and .keycloak.url and .keycloak.realm and .keycloak.clientId' >/dev/null
+
+                        curl -fsS "http://${SMOKE_HOST}:${SMOKE_PORT}/" | grep -q '<app-root'
+
+                        AUTH_CODE=$(curl -s -o /dev/null -w '%{http_code}' "http://${SMOKE_HOST}:${SMOKE_PORT}/auth")
+                        if [ "$AUTH_CODE" != "301" ]; then
+                          echo "Expected /auth to redirect with 301, got $AUTH_CODE"
+                          exit 1
+                        fi
+
+                        docker rm -f frontend-smoke >/dev/null
+                    '''
+                }
+            }
+        }
+
+        stage('Publish to Nexus') {
+            when {
+                expression { params.PUBLISH_TO_NEXUS }
+            }
+            steps {
+                dir(env.SERVICE_DIR) {
+                    withCredentials([usernamePassword(credentialsId: 'nexus-docker', usernameVariable: 'NEXUS_USER', passwordVariable: 'NEXUS_PASSWORD')]) {
+                        sh '''
+                            set -eu
+                            echo "$NEXUS_PASSWORD" | docker login "$NEXUS_DOCKER_REGISTRY" -u "$NEXUS_USER" --password-stdin
+
+                            TARGET="$NEXUS_DOCKER_REGISTRY/$NEXUS_DOCKER_REPOSITORY/${IMAGE_NAME}:${IMAGE_TAG}"
+                            docker tag "${IMAGE_NAME}:${IMAGE_TAG}" "$TARGET"
+                            docker push "$TARGET"
+
+                            LATEST="$NEXUS_DOCKER_REGISTRY/$NEXUS_DOCKER_REPOSITORY/${IMAGE_NAME}:latest"
+                            docker tag "${IMAGE_NAME}:${IMAGE_TAG}" "$LATEST"
+                            docker push "$LATEST"
+
+                            docker logout "$NEXUS_DOCKER_REGISTRY"
+                        '''
+                    }
+                }
+            }
+        }
+    }
+
+    post {
+        always {
+            junit allowEmptyResults: true, testResults: "${env.SERVICE_DIR}/coverage/junit.xml"
+            archiveArtifacts artifacts: "${env.SERVICE_DIR}/dist/cursus-frontend/**,${env.SERVICE_DIR}/coverage/lcov.info", allowEmptyArchive: true
+            sh 'docker rm -f frontend-smoke >/dev/null 2>&1 || true'
+        }
+        success {
+            echo "Frontend build ${env.BUILD_NUMBER} succeeded."
+        }
+        failure {
+            echo "Frontend build ${env.BUILD_NUMBER} failed."
+        }
+    }
+}

@@ -1,0 +1,34 @@
+# Build output
+target/
+
+# Maven wrapper is not committed for this service
+.mvn/
+
+# Compiled class files
+*.class
+
+# Logs
+logs/
+*.log
+
+# IDEs
+.idea/
+*.iml
+*.ipr
+*.iws
+.vscode/
+.classpath
+.project
+.settings/
+nbproject/
+*.swp
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Env / secrets
+.env
+
+# Sonar scanner working dir
+.scannerwork/

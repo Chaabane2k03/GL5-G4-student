@@ -1,0 +1,10 @@
+.git
+.m2
+.env
+target/classes
+target/test-classes
+target/surefire-reports
+!target/*.jar
+Dockerfile.jenkins
+docker-compose*.yml
+jenkins/

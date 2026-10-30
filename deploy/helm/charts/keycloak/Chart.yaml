@@ -1,0 +1,10 @@
+apiVersion: v2
+name: keycloak
+description: >-
+  Helm chart for the Keycloak identity provider of the GL5-G4 Student
+  platform. The API Gateway is an OAuth2 Resource Server: it validates the
+  JWT against the realm exposed here, so the realm, its roles and its demo
+  users are provisioned with the chart.
+type: application
+version: 0.1.0
+appVersion: "26.0"

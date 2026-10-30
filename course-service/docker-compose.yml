@@ -1,0 +1,76 @@
+name: course-service-app
+
+services:
+  course-db:
+    image: ${MYSQL_IMAGE:-mysql:8.0}
+    container_name: ${DB_CONTAINER_NAME:-course-db}
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-rootpass}
+      MYSQL_DATABASE: ${DB_NAME:-course_db}
+      MYSQL_USER: ${DB_USER:-course_user}
+      MYSQL_PASSWORD: ${DB_PASSWORD:-course_pass}
+    ports:
+      - "${DB_HOST_PORT:-3308}:${DB_CONTAINER_PORT:-3306}"
+    volumes:
+      - course-db-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -u root -p\"$$MYSQL_ROOT_PASSWORD\" --silent"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    restart: unless-stopped
+
+  course-service:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        SERVER_PORT: ${SERVER_PORT:-8084}
+    image: ${SERVICE_IMAGE:-course-service:latest}
+    container_name: ${SERVICE_CONTAINER_NAME:-course-service}
+    depends_on:
+      course-db:
+        condition: service_healthy
+    environment:
+      SERVER_PORT: ${SERVER_PORT:-8084}
+      # ---- Standalone mode -------------------------------------------------------
+      # On develop the app resolves its datasource, JPA settings and context-path from
+      # the Config Server (see config-server/src/main/resources/config/course-service*.properties),
+      # so they are supplied directly here instead, and the remote clients are switched
+      # off. That is what lets `docker compose up -d --build` run this service on its
+      # own, with no Config Server or Eureka. The full platform stack (Config Server +
+      # Eureka + all services) is defined by the repository root's docker-compose.yml.
+      SPRING_CLOUD_CONFIG_ENABLED: "false"
+      EUREKA_CLIENT_ENABLED: "false"
+      # No department-service in this stack, so the cross-service department check is
+      # switched off (departments are referenced by id only). Platform mode keeps the
+      # default strict, where an unreachable department-service yields 503, not a write.
+      APP_DEPARTMENT_VALIDATION: "off"
+      SPRING_DATASOURCE_URL: "jdbc:mysql://${DB_SERVICE_NAME:-course-db}:${DB_CONTAINER_PORT:-3306}/${DB_NAME:-course_db}?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC"
+      SPRING_DATASOURCE_USERNAME: ${DB_USER:-course_user}
+      SPRING_DATASOURCE_PASSWORD: ${DB_PASSWORD:-course_pass}
+      SPRING_JPA_HIBERNATE_DDL_AUTO: ${JPA_DDL_AUTO:-validate}
+      SPRING_SQL_INIT_MODE: ${SQL_INIT_MODE:-always}
+      SPRING_SQL_INIT_SCHEMA_LOCATIONS: "classpath:schema.sql"
+      # Context path: application.yml never sets server.servlet.context-path and the
+      # Config Server (which would set /course) is disabled, so Spring Boot serves the
+      # root context on its own. The image bakes ENV CONTEXT_PATH=/course (its default
+      # HEALTHCHECK probes ${SERVER_PORT}${CONTEXT_PATH}/actuator/health, which is what
+      # platform mode needs), so it must be overridden to the empty string here —
+      # otherwise the healthcheck hits /course/actuator/health and reports 500.
+      CONTEXT_PATH: ""
+      # prometheus is included so the standalone stack also exposes /actuator/prometheus.
+      MANAGEMENT_ENDPOINTS: "${MANAGEMENT_ENDPOINTS:-health,info,prometheus}"
+      # Traces go to the Jaeger collector from the observability stack. The default
+      # (http://localhost:4318) points inside the container, so it is overridden here.
+      OTEL_EXPORTER_OTLP_ENDPOINT: "${OTEL_EXPORTER_OTLP_ENDPOINT:-http://host.docker.internal:4318/v1/traces}"
+      APP_OPENAPI_TITLE: ${APP_OPENAPI_TITLE:-Course Service API}
+      APP_OPENAPI_VERSION: ${APP_OPENAPI_VERSION:-v1}
+      APP_OPENAPI_DESCRIPTION: "${APP_OPENAPI_DESCRIPTION:-REST API to manage courses: create, read, update, archive and activate. Standalone service; departments are referenced by id only.}"
+    ports:
+      - "${SERVER_PORT:-8084}:${SERVER_PORT:-8084}"
+    restart: unless-stopped
+
+volumes:
+  course-db-data:

@@ -1,0 +1,163 @@
+# -----------------------------------------------------------------------
+# Values for the production environment (Amazon EKS).
+#
+# The credentials are never written in this file: they are stored in AWS
+# Secrets Manager and synchronised into Kubernetes Secrets by the External
+# Secrets Operator. The databases are Amazon RDS instances, reached through
+# ExternalName Services that keep the same DNS names as the Minikube MySQL
+# Services, so the JDBC URLs of the applications do not change.
+#
+# The placeholders marked with <...> have to be replaced with the real values
+# of the account.
+# -----------------------------------------------------------------------
+
+# --- Container images ----------------------------------------------------
+# The images are built by the CI pipeline and pushed to Amazon ECR. The nodes
+# authenticate to ECR with their IAM role: no imagePullSecret is needed.
+imageRegistry: <aws-account-id>.dkr.ecr.<region>.amazonaws.com
+imageTag: latest
+
+api-gateway:
+  image:
+    repository: <aws-account-id>.dkr.ecr.<region>.amazonaws.com/gl5-g4-api-gateway
+    tag: latest
+    pullPolicy: IfNotPresent
+  # The credentials come from the Secret synchronised by the External Secrets
+  # Operator instead of being created by the chart.
+  secret:
+    create: false
+    existing: api-gateway-secret
+  secretData: null
+
+student-service:
+  image:
+    repository: <aws-account-id>.dkr.ecr.<region>.amazonaws.com/gl5-g4-student-service
+    tag: latest
+    pullPolicy: IfNotPresent
+  secret:
+    create: false
+    existing: student-service-secret
+  secretData: null
+
+course-service:
+  image:
+    repository: <aws-account-id>.dkr.ecr.<region>.amazonaws.com/gl5-g4-course-service
+    tag: latest
+    pullPolicy: IfNotPresent
+  secret:
+    create: false
+    existing: course-service-secret
+  secretData: null
+
+department-service:
+  image:
+    repository: <aws-account-id>.dkr.ecr.<region>.amazonaws.com/gl5-g4-department-service
+    tag: latest
+    pullPolicy: IfNotPresent
+  secret:
+    create: false
+    existing: department-service-secret
+  secretData: null
+
+enrollment-service:
+  image:
+    repository: <aws-account-id>.dkr.ecr.<region>.amazonaws.com/gl5-g4-enrollment-service
+    tag: latest
+    pullPolicy: IfNotPresent
+  secret:
+    create: false
+    existing: enrollment-service-secret
+  secretData: null
+
+keycloak:
+  # Keycloak is not mirrored in ECR: the chart pulls it from quay.io.
+  image:
+    repository: quay.io/keycloak/keycloak
+    tag: "26.0"
+    pullPolicy: IfNotPresent
+  # Public issuer. Must be the ALB URL of the /auth relay, otherwise the
+  # browser is redirected to an in-cluster hostname. Set it on install:
+  #   --set keycloak.hostname=http://<alb-dns>/auth
+  hostname: http://keycloak:8080
+
+frontend:
+  image:
+    repository: <aws-account-id>.dkr.ecr.<region>.amazonaws.com/gl5-g4-frontend-service
+    tag: latest
+    pullPolicy: IfNotPresent
+  runtime:
+    # HTTP-only environments cannot use Web Crypto: PKCE must be disabled.
+    pkceMethod: false
+  # --- Ingress -----------------------------------------------------------
+  # The AWS Load Balancer Controller exposes the frontend. The Ingress only
+  # routes to the frontend: the API Gateway stays internal.
+  fullnameOverride: frontend
+  replicaCount: 2
+  ingress:
+    enabled: true
+    className: alb
+    host: gl5-student.<domain>
+    annotations:
+      alb.ingress.kubernetes.io/scheme: internal
+      alb.ingress.kubernetes.io/target-type: ip
+      alb.ingress.kubernetes.io/certificate-arn: arn:aws:acm:<region>:<aws-account-id>:certificate/<certificate-id>
+      alb.ingress.kubernetes.io/listen-ports: '[{"HTTP": 80}, {"HTTPS": 443}]'
+      alb.ingress.kubernetes.io/ssl-policy: ELBSecurityPolicy-TLS13-1-2-2021-06
+      alb.ingress.kubernetes.io/healthcheck-path: /
+      alb.ingress.kubernetes.io/healthcheck-port: traffic-port
+      alb.ingress.kubernetes.io/success-codes: "200"
+      alb.ingress.kubernetes.io/inbound-cidrs: "<vpc-cidr>"
+    tls:
+      enabled: true
+      secretName: ""
+
+# --- Databases -----------------------------------------------------------
+# Amazon RDS replaces the MySQL StatefulSets.
+student-db:
+  enabled: false
+course-db:
+  enabled: false
+department-db:
+  enabled: false
+enrollment-db:
+  enabled: false
+
+rds:
+  enabled: true
+  databases:
+    - name: student-db
+      endpoint: <student-db-endpoint>.<rds-domain>
+    - name: course-db
+      endpoint: <course-db-endpoint>.<rds-domain>
+    - name: department-db
+      endpoint: <department-db-endpoint>.<rds-domain>
+    - name: enrollment-db
+      endpoint: <enrollment-db-endpoint>.<rds-domain>
+
+# --- External Secrets ----------------------------------------------------
+externalSecrets:
+  enabled: true
+  refreshInterval: 1h
+  secretStore:
+    name: aws-secrets-manager
+    kind: ClusterSecretStore
+  aws:
+    region: <region>
+    serviceAccount: external-secrets
+    # IRSA: the role the operator assumes to read AWS Secrets Manager.
+    roleArn: arn:aws:iam::<aws-account-id>:role/gl5-external-secrets
+
+# --- NetworkPolicies -----------------------------------------------------
+networkPolicy:
+  enabled: true
+  # On EKS the ALB works in "ip" mode: the traffic reaches the pods from the
+  # VPC, so the client CIDRs are allowed instead of the ingress controller
+  # namespace.
+  ingressNamespace: ""
+  ingressCidrBlocks:
+    - <vpc-cidr>
+  observabilityNamespace: observability
+
+# --- Storage -------------------------------------------------------------
+# The PersistentVolumeClaims of the CI tools use the gp3 StorageClass.
+storageClass: gp3

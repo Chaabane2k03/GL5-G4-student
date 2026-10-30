@@ -1,0 +1,18 @@
+The frontend has been deployed.
+
+{{- if .Values.ingress.enabled }}
+
+The user interface is exposed by the Ingress:
+  http{{ if .Values.ingress.tls.enabled }}s{{ end }}://{{ .Values.ingress.host }}{{ .Values.ingress.path }}
+
+The Angular application uses the runtime API URL:
+  {{ .Values.runtime.apiBaseUrl }}
+{{- else }}
+
+No Ingress has been created (ingress.enabled is false).
+{{- end }}
+
+The frontend image is built from frontend-service and listens on port {{ .Values.containerPort }}.
+
+Reach the frontend from your workstation with:
+  kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "frontend.fullname" . }} 8080:{{ .Values.service.port }}
