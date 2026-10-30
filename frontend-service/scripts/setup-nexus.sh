@@ -37,7 +37,7 @@ curl -fsS -u "$NEXUS_USER:$NEXUS_PASSWORD" \
     \"storage\": {
       \"blobStoreName\": \"default\",
       \"strictContentTypeValidation\": true,
-      \"writePolicy\": \"allow_once\"
+      \"writePolicy\": \"allow\"
     },
     \"docker\": {
       \"v1Enabled\": false,
