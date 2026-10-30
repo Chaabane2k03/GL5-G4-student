@@ -59,7 +59,7 @@ export const errorInterceptor: HttpInterceptorFn = (req, next) => {
         if (error.status === 401) {
           authService.isSessionExpired.set(true);
         } else if (error.status === 403) {
-          router.navigate(['/403']);
+          void router.navigate(['/403']);
         } else if (error.status === 503 || error.status === 504 || error.status === 0) {
           errorNotification.showServiceUnavailable(serviceName);
         }

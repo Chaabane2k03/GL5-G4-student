@@ -29,11 +29,11 @@ export function parseDateString(dateStr: string | null | undefined): SafeDatePar
   if (parts.length < 3) {
     return null;
   }
-  const year = parseInt(parts[0], 10);
-  const month = parseInt(parts[1], 10);
-  const day = parseInt(parts[2], 10);
+  const year = Number.parseInt(parts[0], 10);
+  const month = Number.parseInt(parts[1], 10);
+  const day = Number.parseInt(parts[2], 10);
 
-  if (isNaN(year) || isNaN(month) || isNaN(day)) {
+  if (Number.isNaN(year) || Number.isNaN(month) || Number.isNaN(day)) {
     return null;
   }
   return { year, month, day };
@@ -122,7 +122,7 @@ export function formatUtcDateTime(dateIsoStr: string | null | undefined): string
   const normalizedIso = dateIsoStr.endsWith('Z') ? dateIsoStr : `${dateIsoStr}Z`;
   try {
     const d = new Date(normalizedIso);
-    if (isNaN(d.getTime())) {
+    if (Number.isNaN(d.getTime())) {
       return formatDateFrShort(dateIsoStr);
     }
     const day = d.getUTCDate();

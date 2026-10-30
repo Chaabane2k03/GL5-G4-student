@@ -1004,7 +1004,7 @@ export class StudentDetailComponent implements OnInit {
         if (idParam) {
           const id = Number.parseInt(idParam, 10);
           if (!Number.isNaN(id)) {
-            this.loadData(id);
+            void this.loadData(id);
           }
         }
       });
@@ -1052,7 +1052,7 @@ export class StudentDetailComponent implements OnInit {
   }
 
   navigateToEnrollment(): void {
-    this.router.navigate(['/inscriptions/nouvelle'], {
+    void this.router.navigate(['/inscriptions/nouvelle'], {
       queryParams: { studentId: this.student()?.id },
     });
   }
@@ -1101,7 +1101,7 @@ export class StudentDetailComponent implements OnInit {
       await firstValueFrom(this.studentApi.update(req));
       this.snackbar.success('Dossier étudiant mis à jour avec succès.');
       this.closeDrawer();
-      this.loadData(this.student()!.id);
+      void this.loadData(this.student()!.id);
     } catch (err) {
       console.error('Erreur mise à jour étudiant', err);
       this.formError.set('Impossible de modifier le dossier étudiant.');
@@ -1143,7 +1143,7 @@ export class StudentDetailComponent implements OnInit {
       await firstValueFrom(this.enrollmentApi.update(req));
       this.snackbar.success('Note et statut enregistrés sur le relevé.');
       this.closeGradeModal();
-      this.loadData(this.student()!.id);
+      void this.loadData(this.student()!.id);
     } catch (err) {
       console.error('Erreur saisie note', err);
       this.snackbar.error('Impossible d’enregistrer la note sur le serveur.');
@@ -1165,7 +1165,7 @@ export class StudentDetailComponent implements OnInit {
       await firstValueFrom(this.studentApi.delete(s.id));
       this.snackbar.success(`Le dossier de l'étudiant ${this.fullName()} a été définitivement supprimé.`);
       this.isDeleteModalOpen.set(false);
-      this.router.navigate(['/etudiants']);
+      void this.router.navigate(['/etudiants']);
     } catch (err) {
       console.error('Erreur suppression étudiant', err);
       this.snackbar.error('Impossible de supprimer le dossier de cet étudiant.');

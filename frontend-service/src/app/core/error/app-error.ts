@@ -61,7 +61,7 @@ export function normalizeHttpError(error: unknown, serviceName?: string): AppErr
   } else if (status === 404) {
     message = 'La ressource demandée est introuvable.';
   } else if (status === 409) {
-    message = message || 'Conflit : cette ressource ou ce code existe déjà.';
+    message = (responseBody && (typeof responseBody['message'] === 'string' || typeof responseBody['error'] === 'string')) ? ((responseBody['message'] as string) || (responseBody['error'] as string)) : 'Conflit : cette ressource ou ce code existe déjà.';
   }
 
   return {

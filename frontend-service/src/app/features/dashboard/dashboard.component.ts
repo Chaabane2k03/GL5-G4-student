@@ -1210,8 +1210,8 @@ export class DashboardComponent implements OnInit {
     });
   });
 
-  async ngOnInit(): Promise<void> {
-    await this.loadDashboardData();
+  ngOnInit(): void {
+    void this.loadDashboardData();
   }
 
   async loadDashboardData(): Promise<void> {

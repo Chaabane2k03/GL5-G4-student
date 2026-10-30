@@ -1,9 +1,9 @@
 import { signal } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { Router } from '@angular/router';
-import { AuthService } from '../../core/auth/auth.service';
-import { ConfigService } from '../../core/config/runtime-config';
-import { ConnexionComponent } from './connexion.component';
+import { AuthService } from '../../../../app/core/auth/auth.service';
+import { ConfigService } from '../../../../app/core/config/runtime-config';
+import { ConnexionComponent } from '../../../../app/features/auth/connexion.component';
 
 describe('ConnexionComponent', () => {
   let fixture: ComponentFixture<ConnexionComponent>;
@@ -27,6 +27,7 @@ describe('ConnexionComponent', () => {
   beforeEach(async () => {
     authServiceMock.isAuthenticated.set(false);
     authServiceMock.isKeycloakAvailable.set(true);
+    routerMock.navigate.calls.reset();
 
     await TestBed.configureTestingModule({
       imports: [ConnexionComponent],
@@ -59,5 +60,26 @@ describe('ConnexionComponent', () => {
     expect(text).not.toContain('Se connecter avec Keycloak');
     expect(text).toContain("Université — Tous droits d'accès réservés");
     expect(text).not.toContain('Protocole OAuth2 / OIDC avec vérification PKCE (S256)');
+  });
+
+  it('redirects an authenticated user to the dashboard on init', () => {
+    authServiceMock.isAuthenticated.set(true);
+
+    fixture.componentInstance.ngOnInit();
+
+    expect(routerMock.navigate).toHaveBeenCalledWith(['/tableau-de-bord']);
+  });
+
+  it('redirects after a successful Keycloak retry', async () => {
+    authServiceMock.isAuthenticated.set(true);
+
+    await fixture.componentInstance.retryKeycloak();
+
+    expect(routerMock.navigate).toHaveBeenCalledWith(['/tableau-de-bord']);
+  });
+
+  it('delegates connect to authService.login', async () => {
+    await fixture.componentInstance.connect();
+    expect(authServiceMock.login).toHaveBeenCalled();
   });
 });

@@ -1007,7 +1007,7 @@ export class CoursesListComponent implements OnInit {
       q: this.searchQuery() ? this.searchQuery() : null,
     };
 
-    this.router.navigate([], {
+    void this.router.navigate([], {
       relativeTo: this.route,
       queryParams,
       queryParamsHandling: 'merge',

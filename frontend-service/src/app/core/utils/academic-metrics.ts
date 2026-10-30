@@ -204,6 +204,6 @@ export function calculateDashboardAlerts(
  * Couleurs douces extraites des maquettes : vert forêt, ocre, bleu ardoise, terracotta, olive, prune, sable.
  */
 export function getDepartmentColorIndex(departmentId: number): number {
-  if (isNaN(departmentId) || departmentId < 0) return 0;
+  if (Number.isNaN(departmentId) || departmentId < 0) return 0;
   return Math.abs(departmentId) % 7;
 }
