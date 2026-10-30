@@ -350,6 +350,33 @@ class GatewayResiliencyIntegrationTest {
                 .isEqualTo(6);
     }
 
+    /**
+     * Spring Cloud CircuitBreaker wraps each call in a TimeLimiter whose library default
+     * is one second. At that default a backend answering in 1.2 s is recorded as a
+     * failure and the caller receives the 503 fallback although the service is healthy
+     * (this is what made the api-gateway security tests flake on a loaded CI agent).
+     * The gateway raises the timeout in application.properties
+     * ({@code resilience4j.timelimiter.configs.default.timeout-duration}); this test keeps
+     * it from silently regressing to the one-second default.
+     */
+    @Test
+    void slowButHealthyBackendIsNotTreatedAsAFailure() {
+        BACKEND.recover();
+        BACKEND.delayEachRequestBy(1200);
+
+        try {
+            webTestClient.get().uri("/breaker/api/courses")
+                    .exchange()
+                    .expectStatus().isEqualTo(200);
+
+            assertThat(breaker("breaker-test").getMetrics().getNumberOfFailedCalls())
+                    .as("a response slower than one second but well inside the timeout is not a failure")
+                    .isZero();
+        } finally {
+            BACKEND.delayEachRequestBy(0);
+        }
+    }
+
     // ------------------------------------------------------------------
     // Retry
     // ------------------------------------------------------------------
