@@ -180,11 +180,24 @@ On the `develop` or `main` branch, open **Build with Parameters** and tick
 `DEPLOY_AWS`. The pipeline then:
 
 1. creates the six ECR repositories (`terraform apply -target`);
-2. rebuilds all six images and pushes them as `gl5-g4-<service>:<build>-<sha>`
-   (a single tag shared by every service, as the Helm chart expects);
-3. applies VPC, EKS, RDS and the Helm release (`image_tag=<build>-<sha>`);
+2. rebuilds all six images and pushes them as `gl5-g4-<service>:latest`
+   (a single mutable tag shared by every service, as the Helm chart expects);
+3. applies VPC, EKS, RDS and the Helm release (`image_tag=latest`);
 4. waits for the ALB hostname and re-applies it as `public_hostname`;
-5. waits for the Keycloak and API Gateway rollouts; a failed rollout fails the build.
+5. because `latest` never changes, restarts the six application deployments so
+   the nodes re-pull the new layers (Terraform sets `imagePullPolicy=Always`
+   for this tag), then waits for every rollout; a failed rollout fails the build.
+
+To go back to immutable tags, replace `env.DEPLOY_TAG = 'latest'` in the
+`Detect Changes` stage with `"${env.BUILD_NUMBER}-<short-sha>"`.
+
+The two `terraform apply` runs of steps 3 and 4 are retried up to 3 times (30 s
+apart) when they fail. A fresh EKS cluster occasionally answers
+`unable to build kubernetes objects ... /api?timeout=32s: context deadline
+exceeded` while Helm discovers the API right after a large installation
+(kube-prometheus-stack); replaying the apply only acts on what is still
+missing. There is still no timeout: each attempt runs to completion and a
+genuine error fails the build after the last attempt.
 
 `AWS_REGION`, `AWS_CLUSTER_NAME` and `TF_STATE_DIR` can be overridden as build
 parameters. The region is not read from `.env`: every `aws` call and Terraform

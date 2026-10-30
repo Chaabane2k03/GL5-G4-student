@@ -198,6 +198,11 @@ resource "helm_release" "gl5_student" {
 locals {
   rds_endpoint = aws_db_instance.gl5.address
 
+  # `latest` is a mutable tag: nodes must always pull the freshly pushed image,
+  # otherwise a restart would silently reuse the cached layers. Immutable tags
+  # (the <build>-<sha> scheme) keep the default IfNotPresent.
+  image_pull_policy = var.image_tag == "latest" ? "Always" : "IfNotPresent"
+
   # Keycloak is reached by the browser through the frontend's /auth relay, so
   # its published issuer must be the public URL, not the in-cluster Service.
   # On the first apply (public_hostname = "") the internal URL keeps Keycloak
@@ -314,7 +319,7 @@ locals {
     # the chart to create per-service secrets from the secretData below
     # (values/eks/gl5-student.yaml says create=false for the ESO flow).
     api-gateway = {
-      image  = { repository = "${local.ecr_domain}/gl5-g4-api-gateway", tag = var.image_tag }
+      image  = { repository = "${local.ecr_domain}/gl5-g4-api-gateway", tag = var.image_tag, pullPolicy = local.image_pull_policy }
       secret = { create = true, existing = "" }
       env = {
         # The browser gets tokens from the public /auth URL; the gateway
@@ -326,7 +331,7 @@ locals {
       secretData = {}
     }
     student-service = {
-      image  = { repository = "${local.ecr_domain}/gl5-g4-student-service", tag = var.image_tag }
+      image  = { repository = "${local.ecr_domain}/gl5-g4-student-service", tag = var.image_tag, pullPolicy = local.image_pull_policy }
       secret = { create = true, existing = "" }
       env = {
         SPRING_DATASOURCE_URL = "jdbc:mysql://${local.rds_endpoint}:3306/studentdb?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC&createDatabaseIfNotExist=true"
@@ -337,7 +342,7 @@ locals {
       }
     }
     course-service = {
-      image  = { repository = "${local.ecr_domain}/gl5-g4-course-service", tag = var.image_tag }
+      image  = { repository = "${local.ecr_domain}/gl5-g4-course-service", tag = var.image_tag, pullPolicy = local.image_pull_policy }
       secret = { create = true, existing = "" }
       env = {
         SPRING_DATASOURCE_URL = "jdbc:mysql://${local.rds_endpoint}:3306/course_db?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC&createDatabaseIfNotExist=true"
@@ -348,7 +353,7 @@ locals {
       }
     }
     department-service = {
-      image  = { repository = "${local.ecr_domain}/gl5-g4-department-service", tag = var.image_tag }
+      image  = { repository = "${local.ecr_domain}/gl5-g4-department-service", tag = var.image_tag, pullPolicy = local.image_pull_policy }
       secret = { create = true, existing = "" }
       env = {
         SPRING_DATASOURCE_URL = "jdbc:mysql://${local.rds_endpoint}:3306/departmentdb?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC&createDatabaseIfNotExist=true"
@@ -359,7 +364,7 @@ locals {
       }
     }
     enrollment-service = {
-      image  = { repository = "${local.ecr_domain}/gl5-g4-enrollment-service", tag = var.image_tag }
+      image  = { repository = "${local.ecr_domain}/gl5-g4-enrollment-service", tag = var.image_tag, pullPolicy = local.image_pull_policy }
       secret = { create = true, existing = "" }
       env = {
         SPRING_DATASOURCE_URL = "jdbc:mysql://${local.rds_endpoint}:3306/enrollmentdb?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC&createDatabaseIfNotExist=true"
@@ -383,7 +388,7 @@ locals {
       # The real Angular application, built by `docker compose build
       # frontend-service`. A stock nginx image has no /api and /auth proxy
       # configuration and fails the /health probe.
-      image = { repository = "${local.ecr_domain}/gl5-g4-frontend-service", tag = var.image_tag }
+      image = { repository = "${local.ecr_domain}/gl5-g4-frontend-service", tag = var.image_tag, pullPolicy = local.image_pull_policy }
 
       runtime = {
         # The lab exposes the ALB over plain HTTP (no domain to validate an

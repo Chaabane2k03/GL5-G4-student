@@ -659,6 +659,8 @@ if ($VPC) {
 | **Configuration** | Changes to `realm.json.tpl` not reflected | Realm database is in-memory; import occurs only on init | Delete the Keycloak pod to trigger re-import of the realm template upon pod startup. |
 | **API Gateway** | HTTP `401 Unauthorized` on `/api/**` | Issuer URL mismatch | Verify token `iss` matches `KEYCLOAK_ISSUER_URI` on the gateway. `JWK_SET_URI` must remain internal. |
 | **Database** | Microservices show `Connection refused` | RDS security group blocks node ingress | Confirm the RDS security group allows port 3306 inbound from the cluster VPC CIDR. |
+| **Helm** | `Found in Chart.yaml, but missing in charts/ directory` while planning | The umbrella chart's `file://` dependencies are not packaged (`charts/*.tgz` are git-ignored) and the Helm provider validates the chart during plan | Run `helm dependency update deploy/helm/umbrella/gl5-student`, or rely on `dependency_update = true` on `helm_release.gl5_student` which does it at plan time. |
+| **Helm** | `unable to build kubernetes objects ... /api?timeout=32s: context deadline exceeded` | Transient: the EKS API server is briefly unreachable right after a large Helm install (kube-prometheus-stack) | Re-run `terraform apply` (the Jenkins pipeline retries it up to 3 times). Confirm with `kubectl get --raw /api`; no configuration change is needed. |
 | **Teardown** | `terraform destroy` fails on Helm release | Cluster deleted before Helm uninstallation | Run `helm uninstall gl5-student -n gl5-student` prior to executing `terraform destroy`. |
 | **Cost** | EKS control plane cost exceeds budget | Kubernetes version entered extended support | Upgrade `kubernetes_version` to an AWS standard support release. |
 

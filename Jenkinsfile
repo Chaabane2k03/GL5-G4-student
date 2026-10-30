@@ -130,7 +130,12 @@ pipeline {
                     // must build and push the whole set, not only the changed services.
                     if (env.DEPLOY_AWS == 'true') {
                         selected = (SERVICES.keySet() as List) + [FRONTEND]
-                        env.DEPLOY_TAG = "${env.BUILD_NUMBER}-${sh(script: 'git rev-parse --short HEAD', returnStdout: true).trim()}"
+                        // Temporary: every deploy reuses the mutable `latest` tag. The
+                        // images are still rebuilt and pushed, and phase 3 restarts the
+                        // deployments so the nodes pull the new layers (pullPolicy=Always
+                        // is set by Terraform for this tag). Switch back to
+                        // "${env.BUILD_NUMBER}-<sha>" for immutable, reproducible tags.
+                        env.DEPLOY_TAG = 'latest'
                         echo "AWS deploy: forcing all components, image tag ${env.DEPLOY_TAG}"
                     }
 
@@ -739,7 +744,7 @@ void deployToAws(List components) {
                   echo "Pushing \$REGISTRY/\${img}:${tag}"
                   docker tag "\${img}:${tag}" "\$REGISTRY/\${img}:${tag}"
                   docker push "\$REGISTRY/\${img}:${tag}"
-                  if [ "${env.IS_RELEASE}" = "true" ]; then
+                  if [ "${env.IS_RELEASE}" = "true" ] && [ "${tag}" != "latest" ]; then
                     docker tag "\${img}:${tag}" "\$REGISTRY/\${img}:latest"
                     docker push "\$REGISTRY/\${img}:latest"
                   fi
@@ -752,16 +757,28 @@ void deployToAws(List components) {
             def savedHost = readStateFile(stateDir, 'public_hostname')
             def hostArg   = savedHost ? "-var public_hostname=${savedHost}" : ''
             dir('deploy/terraform') {
-                sh """
-                    set -eu
-                    ${tfEnv} terraform apply -auto-approve -input=false ${tfVars} -var image_tag=${tag} ${hostArg}
-                """
+                applyWithRetry('AWS Phase 3 (terraform apply)') {
+                    sh """
+                        set -eu
+                        ${tfEnv} terraform apply -auto-approve -input=false ${tfVars} -var image_tag=${tag} ${hostArg}
+                    """
+                }
             }
             sh """
                 set -eu
                 aws eks update-kubeconfig --name "${cluster}" --region "${region}" --kubeconfig "${kubeconfig}"
                 KUBECONFIG="${kubeconfig}" kubectl get nodes
             """
+            if (tag == 'latest') {
+                // With a fixed tag the Helm values do not change between builds, so
+                // Terraform leaves the release untouched and the pods would keep the
+                // previous image. Restart the app deployments so the nodes pull the
+                // freshly pushed :latest layers (pullPolicy=Always is set for it).
+                sh """
+                    set -eu
+                    KUBECONFIG="${kubeconfig}" kubectl -n gl5-student rollout restart deployment/api-gateway deployment/student-service deployment/course-service deployment/department-service deployment/enrollment-service deployment/frontend
+                """
+            }
         }
 
         stage('AWS: Phase 4.1 - ALB hostname') {
@@ -778,10 +795,12 @@ void deployToAws(List components) {
 
             echo "ALB hostname: ${alb}"
             dir('deploy/terraform') {
-                sh """
-                    set -eu
-                    ${tfEnv} terraform apply -auto-approve -input=false ${tfVars} -var image_tag=${tag} -var public_hostname=${alb}
-                """
+                applyWithRetry('AWS Phase 4.1 (public hostname)') {
+                    sh """
+                        set -eu
+                        ${tfEnv} terraform apply -auto-approve -input=false ${tfVars} -var image_tag=${tag} -var public_hostname=${alb}
+                    """
+                }
             }
             sh "echo '${alb}' > '${stateDir}/public_hostname'"
 
@@ -794,8 +813,9 @@ void deployToAws(List components) {
             try {
                 sh """
                     set -eu
-                    KUBECONFIG="${kubeconfig}" kubectl -n gl5-student rollout status deployment/keycloak
-                    KUBECONFIG="${kubeconfig}" kubectl -n gl5-student rollout status deployment/api-gateway
+                    for d in keycloak api-gateway student-service course-service department-service enrollment-service frontend; do
+                      KUBECONFIG="${kubeconfig}" kubectl -n gl5-student rollout status deployment/\$d
+                    done
                 """
             } catch (err) {
                 sh """
@@ -819,6 +839,29 @@ void deployToAws(List components) {
                   if [ -f "\$f" ]; then cp -f "\$f" "${stateDir}/"; fi
                 done
             """
+        }
+    }
+}
+
+// Retries an AWS terraform apply on failure. The EKS API server can be briefly
+// unreachable (e.g. "context deadline exceeded" while Helm discovers the API)
+// right after a large Helm install such as kube-prometheus-stack. Replaying the
+// apply is safe: Terraform re-plans against the state saved in `finally` and
+// only acts on what is still missing. There is no timeout: each attempt runs to
+// completion, only the number of attempts is bounded.
+void applyWithRetry(String label, int attempts = 3, Closure body) {
+    for (int i = 1; i <= attempts; i++) {
+        try {
+            echo "AWS apply: ${label} (attempt ${i}/${attempts})"
+            body()
+            return
+        } catch (err) {
+            if (i >= attempts) {
+                throw err
+            }
+            echo "WARNING: ${label} failed on attempt ${i}/${attempts}: ${err.message}"
+            echo 'The EKS API can be briefly unreachable after a large Helm install; retrying in 30s.'
+            sleep(time: 30, unit: 'SECONDS')
         }
     }
 }
