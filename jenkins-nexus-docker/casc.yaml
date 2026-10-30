@@ -71,7 +71,7 @@ jobs:
       // Set PER_SERVICE_JOBS=false to stop creating the five per-service jobs
       // and keep only the single all-services pipeline. Deleting the existing
       // jobs is manual: Job DSL leaves them in place when they stop being defined.
-      def perServiceJobs = System.getenv('PER_SERVICE_JOBS') != 'false'
+      def perServiceJobs = System.getenv('PER_SERVICE_JOBS') == 'true'
 
       def jobs = [
         [name: 'department-service', path: 'department-service', description: 'Multibranch CI/CD pipeline for department-service'],

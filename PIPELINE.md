@@ -1,7 +1,7 @@
 # Single pipeline (all services)
 
 `Jenkinsfile` at the repository root is the single CI/CD entry point for the
-whole monorepo. It replaces the need to open seven separate jobs: one
+whole monorepo. It replaces the need to open five separate jobs: one
 multibranch job, `service-pipelines/all-services`, builds every service that a
 push actually touched, in parallel, with the same quality contract.
 
@@ -17,14 +17,11 @@ Checkout
   └─ Preflight                     toolchain + Docker + registry sanity checks
   └─ Detect changes                git diff -> list of services to build
   └─ Build, test, analyse and package        (one parallel branch per service)
-       ├─ config-server      ┐
-       ├─ eureka-server      │  Build & test   mvn clean verify
-       ├─ api-gateway        │  Static analysis SonarQube + quality gate
-       ├─ department-service ├─ Container image Dockerfile.ci / Dockerfile
-       ├─ enrollment-service │  Publish artifact Nexus release or snapshot
-       ├─ course-service     │
+       ├─ api-gateway        ┐  Build & test   mvn clean verify
+       ├─ department-service ├─ Static analysis SonarQube + quality gate
+       ├─ enrollment-service ├─ Container image Dockerfile.ci / Dockerfile
+       ├─ course-service     ├─ Publish artifact Nexus release or snapshot
        └─ student-service    ┘
-  └─ Security scan                 optional, Trivy HIGH/CRITICAL (off by default)
   └─ Build report                  per-service markdown table + description
 post: JUnit results, jars, notification
 ```
@@ -85,7 +82,7 @@ the pipeline contract files rebuilds everything:
 
 If a change touches nothing that belongs to a service (documentation, for
 example), the pipeline finishes green with a "nothing to build" report instead
-of running seven empty builds.
+of running five empty builds.
 
 Services can declare `dependsOn` in the `SERVICES` list. Dependants are added
 automatically when a dependency changes (none are declared today because the
@@ -101,7 +98,6 @@ services are independent at build time).
 | `SKIP_SONAR` | `false` | skip analysis and quality gate |
 | `SKIP_DOCKER` | `false` | skip image builds |
 | `SKIP_NEXUS` | `false` | skip publishing |
-| `SECURITY_SCAN` | `false` | run Trivy on the built images (pulls `aquasec/trivy`) |
 | `FORCE_RELEASE` | `false` | publish a release version from any branch |
 | `OVERRIDE_VERSION` | empty | fixed version, e.g. `1.2.0` |
 | `EMAIL_RECIPIENTS` | empty | recipients for the build report; empty disables mail |
@@ -186,8 +182,6 @@ single job only. Their build history disappears with them.
   needs the same pipeline.
 - Add a deployment stage (Compose/Kubernetes) that consumes the published
   version instead of rebuilding.
-- Enable `SECURITY_SCAN` in CI once the Trivy image is available offline, and
-  add image signing (`cosign`) before pushing to a registry.
 - Push images to a registry in CI instead of only building them locally: set
   `DOCKER_REGISTRY` and create a `docker-registry` username/password credential
   in Jenkins.

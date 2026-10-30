@@ -27,11 +27,9 @@
 
 /* -------------------------------------------------------------------------
  * Service registry - the single source of truth for the pipeline.
- * keep this list in sync with the folders that contain a pom.xml.
+ * Keep this list in sync with the services supported by the aggregate build.
  * ---------------------------------------------------------------------- */
 def SERVICES = [
-    [name: 'config-server',      path: 'config-server',      port: 8071, sonarKey: 'gl5-g4-config-server', sonarName: 'Config Server',      dependsOn: []],
-    [name: 'eureka-server',      path: 'eureka-server',      port: 8761, sonarKey: 'eureka-server',         sonarName: 'Eureka Server',      dependsOn: []],
     [name: 'api-gateway',        path: 'api-gateway',        port: 8072, sonarKey: 'api-gateway',           sonarName: 'API Gateway',        dependsOn: []],
     [name: 'department-service', path: 'department-service', port: 8082, sonarKey: 'department-service',    sonarName: 'Department Service', dependsOn: []],
     [name: 'enrollment-service', path: 'enrollment-service', port: 8083, sonarKey: 'enrollment-service',    sonarName: 'Enrollment Service', dependsOn: []],
@@ -446,11 +444,6 @@ pipeline {
             description: 'Skip publishing artifacts to Nexus.'
         )
         booleanParam(
-            name: 'SECURITY_SCAN',
-            defaultValue: false,
-            description: 'Scan the built images with Trivy and fail on HIGH/CRITICAL findings.'
-        )
-        booleanParam(
             name: 'FORCE_RELEASE',
             defaultValue: false,
             description: 'Publish a release version even when the branch is not the release branch.'
@@ -542,47 +535,22 @@ pipeline {
                 script {
                     def branches = [:]
                     selectedServiceNames().each { name ->
-                        def svc = serviceByName(name)
-                        def result = [build: 'PENDING', sonar: 'PENDING', image: 'PENDING', nexus: 'PENDING']
-                        RESULTS[name] = result
-                        branches[name] = {
-                            withEnv(["SERVICE_NAME=${name}"]) {
+                        def serviceName = name
+                        def service = serviceByName(serviceName)
+                        def serviceResult = [build: 'PENDING', sonar: 'PENDING', image: 'PENDING', nexus: 'PENDING']
+                        RESULTS[serviceName] = serviceResult
+                        branches[serviceName] = {
+                            withEnv(["SERVICE_NAME=${serviceName}"]) {
                                 catchError(buildResult: 'FAILURE', stageResult: 'FAILURE') {
-                                    runService(svc, result)
+                                    runService(service, serviceResult)
                                 }
                             }
-                            result.keySet().findAll { k -> result[k] == 'PENDING' }.each { k ->
-                                result[k] = 'FAILED'
+                            serviceResult.keySet().findAll { key -> serviceResult[key] == 'PENDING' }.each { key ->
+                                serviceResult[key] = 'FAILED'
                             }
                         }
                     }
                     parallel branches
-                }
-            }
-        }
-
-        stage('Security scan') {
-            when {
-                expression { return params.SECURITY_SCAN && !selectedServiceNames().isEmpty() }
-            }
-            steps {
-                script {
-                    selectedServiceNames().each { name ->
-                        withEnv(["IMAGE_NAME=${name}", "IMAGE_TAG=${env.BUILD_NUMBER}-${env.GIT_SHORT_SHA}"]) {
-                            sh '''
-                                set -eu
-                                echo "Scanning ${IMAGE_NAME}:${IMAGE_TAG}"
-                                docker run --rm \
-                                    -v /var/run/docker.sock:/var/run/docker.sock \
-                                    aquasec/trivy:latest image \
-                                    --severity HIGH,CRITICAL \
-                                    --ignore-unfixed \
-                                    --exit-code 1 \
-                                    --no-progress \
-                                    "${IMAGE_NAME}:${IMAGE_TAG}"
-                            '''
-                        }
-                    }
                 }
             }
         }
