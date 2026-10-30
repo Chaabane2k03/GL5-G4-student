@@ -17,6 +17,7 @@ import org.springframework.test.web.reactive.server.FluxExchangeResult;
 import org.springframework.test.web.reactive.server.WebTestClient;
 
 import java.io.IOException;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
@@ -178,8 +179,13 @@ class GatewayResiliencyIntegrationTest {
      */
     @BeforeEach
     void resetResilienceState() {
+        this.webTestClient = this.webTestClient.mutate()
+                .responseTimeout(Duration.ofSeconds(30))
+                .build();
         circuitBreakerRegistry.getAllCircuitBreakers()
                 .forEach(circuitBreaker -> circuitBreaker.reset());
+        BACKEND.recover();
+        BACKEND.delayEachRequestBy(0);
     }
 
     /**
@@ -474,7 +480,7 @@ class GatewayResiliencyIntegrationTest {
         for (int i = 0; i < 6; i++) {
             var status = webTestClient.get().uri("/limited/api/departments")
                     .exchange()
-                    .returnResult(String.class)
+                    .returnResult(Void.class)
                     .getStatus();
             if (status.value() == 429) {
                 statuses429++;
