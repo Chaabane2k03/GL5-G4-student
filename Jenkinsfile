@@ -58,6 +58,7 @@ def RESULTS = [:]
 def detectChangedPaths() {
     def out = sh(script: '''
 set +e
+set +x
 range=""
 
 # Preferred: everything since the last successful build of this branch.
