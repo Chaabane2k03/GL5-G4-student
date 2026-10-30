@@ -39,6 +39,7 @@ pipeline {
     environment {
         NOTIFY_EMAIL     = 'chaabaneboussadia@gmail.com'
         RELEASE_BRANCH   = 'main'
+        DEFAULT_VERSION_PREFIX = '1.0'   // all services publish as 1.0.<build number>
         // MAVEN_OPTS (shared local repo) is already set by docker-compose.jenkins.yml
     }
 
@@ -74,20 +75,6 @@ pipeline {
                     echo "Services to build   : ${env.SELECTED_SERVICES ?: '(none)'}"
                     currentBuild.description = env.SELECTED_SERVICES ?: 'no changes'
                 }
-            }
-        }
-
-        stage('Prepare Maven Settings') {
-            when { expression { env.SELECTED_SERVICES } }
-            steps {
-                // Credentials are NOT written to disk: Maven resolves ${env.*} at runtime.
-                writeFile file: 'ci-settings.xml', text: '''<settings>
-  <servers>
-    <server><id>nexus-snapshots</id><username>${env.NEXUS_USER}</username><password>${env.NEXUS_PASS}</password></server>
-    <server><id>nexus-releases</id><username>${env.NEXUS_USER}</username><password>${env.NEXUS_PASS}</password></server>
-  </servers>
-</settings>
-'''
             }
         }
 
@@ -133,7 +120,6 @@ pipeline {
                     """
                 )
             }
-            sh 'rm -f ci-settings.xml'   // no extra plugin needed (cleanWs is not in Dockerfile.jenkins)
         }
         success { echo 'All selected services built successfully' }
         failure { echo 'One or more services failed' }
@@ -246,7 +232,10 @@ String resolveVersion() {
     def pomVersion = sh(
         script: "mvn -B help:evaluate -Dexpression=project.version -q -DforceStdout 2>/dev/null | grep -v '\\[' | tail -n 1",
         returnStdout: true).trim()
-    def root = pomVersion.replaceFirst(/-SNAPSHOT$/, '')
+    // Optional per-service prefix from ci.env (e.g. VERSION_PREFIX=1.0), as in the original pipelines.
+    def prefix = sh(script: "${ciEnv()}\necho \"\${VERSION_PREFIX:-}\"", returnStdout: true).trim()
+    // Priority: ci.env VERSION_PREFIX > pipeline default (1.0) -> every service publishes as 1.0.<build>
+    def root = prefix ?: env.DEFAULT_VERSION_PREFIX
     return env.IS_RELEASE == 'true' ? "${root}.${env.BUILD_NUMBER}"
                                     : "${root}.${env.BUILD_NUMBER}-SNAPSHOT"
 }
@@ -306,14 +295,26 @@ void publishToNexus(String svc) {
                 RELEASE_ID="\${NEXUS_RELEASE_REPO_ID:-nexus-releases}"
                 SNAPSHOT_ID="\${NEXUS_SNAPSHOT_REPO_ID:-nexus-snapshots}"
 
+                # Server ids in settings.xml MUST equal the repo ids used for deploy below
+                # (a mismatch means no credentials are sent -> 401). Passwords stay out of the
+                # file: Maven resolves \${env.NEXUS_*} at runtime.
+                trap 'rm -f ci-settings.xml' EXIT
+                {
+                  echo '<settings><servers>'
+                  for ID in "\${SNAPSHOT_ID}" "\${RELEASE_ID}"; do
+                    echo "<server><id>\${ID}</id><username>\\\${env.NEXUS_USER}</username><password>\\\${env.NEXUS_PASS}</password></server>"
+                  done
+                  echo '</servers></settings>'
+                } > ci-settings.xml
+
                 if [ "${env.IS_RELEASE}" = "true" ]; then
-                    echo "Publishing RELEASE ${svc} to \${RELEASE_ID}"
-                    mvn -B -s "${env.WORKSPACE}/ci-settings.xml" deploy -DskipTests \\
-                      -DaltReleaseDeploymentRepository="\${RELEASE_ID}::default::\${NEXUS_BASE}/repository/\${RELEASE_REPO}/"
+                    echo "Publishing RELEASE ${svc} to \${RELEASE_ID} (\${NEXUS_BASE})"
+                    mvn -B -s ci-settings.xml deploy -DskipTests \\
+                      -DaltReleaseDeploymentRepository="\${RELEASE_ID}::\${NEXUS_BASE}/repository/\${RELEASE_REPO}/"
                 else
-                    echo "Publishing SNAPSHOT ${svc} to \${SNAPSHOT_ID}"
-                    mvn -B -s "${env.WORKSPACE}/ci-settings.xml" deploy -DskipTests \\
-                      -DaltSnapshotDeploymentRepository="\${SNAPSHOT_ID}::default::\${NEXUS_BASE}/repository/\${SNAPSHOT_REPO}/"
+                    echo "Publishing SNAPSHOT ${svc} to \${SNAPSHOT_ID} (\${NEXUS_BASE})"
+                    mvn -B -s ci-settings.xml deploy -DskipTests \\
+                      -DaltSnapshotDeploymentRepository="\${SNAPSHOT_ID}::\${NEXUS_BASE}/repository/\${SNAPSHOT_REPO}/"
                 fi
             """
         }
