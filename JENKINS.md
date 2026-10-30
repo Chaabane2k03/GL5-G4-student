@@ -151,6 +151,58 @@ docker compose -f jenkins-nexus-docker\docker-compose.jenkins.yml run --rm sonar
 
 The command should report that the webhook was registered or already exists.
 
+### 8. AWS credentials and Terraform deployment
+
+The root [`Jenkinsfile`](Jenkinsfile) can deploy the whole stack to AWS with
+Terraform, following phases 1 to 4.2 of
+[`deploy/terraform/README.md`](deploy/terraform/README.md). Credentials are read
+from `jenkins-nexus-docker/.env` and injected by Compose:
+
+```dotenv
+AWS_ACCESS_KEY_ID=ASIA...
+AWS_SECRET_ACCESS_KEY=...
+# Learner Lab: required and short-lived; empty for long-lived IAM keys.
+AWS_SESSION_TOKEN=...
+```
+
+Recreate the container after changing the file:
+
+```powershell
+docker compose -f jenkins-nexus-docker\docker-compose.jenkins.yml up -d --force-recreate jenkins
+```
+
+The deploy stage needs `aws` (CLI v2), `terraform` (>= 1.9), `kubectl`, `helm`
+(>= 3.16) and `docker` on the Jenkins agent `PATH`. The `AWS: Preflight` stage
+fails with the list of missing tools if one is absent; add them to
+`Dockerfile.jenkins` if the agent does not provide them.
+
+On the `develop` or `main` branch, open **Build with Parameters** and tick
+`DEPLOY_AWS`. The pipeline then:
+
+1. creates the six ECR repositories (`terraform apply -target`);
+2. rebuilds all six images and pushes them as `gl5-g4-<service>:<build>-<sha>`
+   (a single tag shared by every service, as the Helm chart expects);
+3. applies VPC, EKS, RDS and the Helm release (`image_tag=<build>-<sha>`);
+4. waits for the ALB hostname and re-applies it as `public_hostname`;
+5. waits for the Keycloak and API Gateway rollouts; a failed rollout fails the build.
+
+`AWS_REGION`, `AWS_CLUSTER_NAME` and `TF_STATE_DIR` can be overridden as build
+parameters. The region is not read from `.env`: every `aws` call and Terraform
+run receives `AWS_REGION` explicitly (default `us-east-1`). Terraform state
+lives in `/var/jenkins_home/aws-terraform` (the
+`jenkins-home` volume), not in the workspace that `deleteDir()` wipes, so
+consecutive builds track the same AWS resources and keep the ALB hostname.
+
+If the stack already exists from a manual Terraform run, copy the matching
+`terraform.tfstate` into that directory before the first deployment (for
+example `docker cp deploy/terraform/terraform.tfstate gl5-jenkins:/var/jenkins_home/aws-terraform/`),
+otherwise Terraform tries to create resources that already exist.
+
+A Learner Lab stack costs roughly `$0.35-0.45/hour`. Tear it down between
+sessions with `terraform destroy` as described in the README (section 8),
+after copying the state back out of the volume
+(`docker cp gl5-jenkins:/var/jenkins_home/aws-terraform/terraform.tfstate deploy/terraform/`).
+
 ## Running pipelines
 
 There are two entry points, both inside the `service-pipelines` folder:

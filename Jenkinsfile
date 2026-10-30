@@ -14,6 +14,10 @@
 //             -> Publish dist archive to Nexus (raw repo, release/snapshot like the backend)
 //
 //  Only components whose files changed are built (or all, via BUILD_ALL / Jenkinsfile change).
+//
+//  Optional AWS flow (develop/main only, DEPLOY_AWS=true):
+//    Build all six images -> push to ECR -> Terraform apply -> ALB hostname
+//    -> wait for rollouts (phases 1 to 4.2 of deploy/terraform/README.md).
 // =====================================================================
 
 // Single source of truth: add a new backend service here and it is picked up automatically.
@@ -45,14 +49,17 @@ pipeline {
         timestamps()
         disableConcurrentBuilds(abortPrevious: true)   // newer commit cancels older build
         buildDiscarder(logRotator(numToKeepStr: '20', artifactNumToKeepStr: '5'))
-        timeout(time: 60, unit: 'MINUTES')
+        // AWS deploys add 15-25 min (EKS + RDS + Helm) on top of the full build.
+        timeout(time: 120, unit: 'MINUTES')
     }
 
     environment {
         NOTIFY_EMAIL     = 'chaabaneboussadia@gmail.com'
         RELEASE_BRANCH   = 'main'
+        AWS_DEPLOY_BRANCHES = 'develop,main'   // DEPLOY_AWS is only honoured on these branches
         DEFAULT_VERSION_PREFIX = '1.0'   // all components publish as 1.0.<build number>
         // MAVEN_OPTS (shared local repo) is already set by docker-compose.jenkins.yml
+        // AWS_* credentials are injected by jenkins-nexus-docker/docker-compose.jenkins.yml
     }
 
     parameters {
@@ -65,6 +72,16 @@ pipeline {
             description: 'Fail a component if its SonarQube quality gate fails')
         booleanParam(name: 'DOCKER_BUILD', defaultValue: true,
             description: 'Build Docker images for selected backend services; the frontend image is built when selected')
+
+        // ---- AWS / Terraform deployment (deploy/terraform, phases 1 to 4.2) ----
+        booleanParam(name: 'DEPLOY_AWS', defaultValue: false,
+            description: 'Deploy the full stack to AWS: build/push all six images to ECR, terraform apply, wait for the ALB and the rollouts. Only honoured on the develop and main branches.')
+        string(name: 'AWS_REGION', defaultValue: 'us-east-1',
+            description: 'AWS region used by Terraform, ECR and EKS')
+        string(name: 'AWS_CLUSTER_NAME', defaultValue: 'gl5-g4',
+            description: 'EKS cluster name (must match cluster_name in deploy/terraform)')
+        string(name: 'TF_STATE_DIR', defaultValue: '/var/jenkins_home/aws-terraform',
+            description: 'Persistent directory (outside the wiped workspace) holding terraform.tfstate, the ALB hostname and the provider cache')
 
         // ---- release / versioning (backend + frontend) ----
         booleanParam(name: 'FORCE_RELEASE', defaultValue: false,
@@ -96,8 +113,28 @@ pipeline {
             steps {
                 script {
                     env.IS_RELEASE = (isReleaseBuild() ? 'true' : 'false')
-                    env.SELECTED_SERVICES = selectServices(SERVICES.keySet() as List, FRONTEND,
-                                                           GLOBAL_PATHS, BACKEND_PATHS).join(',')
+
+                    def deployRequested = params.DEPLOY_AWS
+                    env.DEPLOY_AWS = (deployRequested && isAwsDeployBranch()) ? 'true' : 'false'
+                    if (deployRequested && env.DEPLOY_AWS != 'true') {
+                        echo "WARNING: DEPLOY_AWS ignored on branch '${currentBranch()}' (allowed: ${env.AWS_DEPLOY_BRANCHES})"
+                    }
+                    if (env.DEPLOY_AWS == 'true' && !params.DOCKER_BUILD) {
+                        error 'DEPLOY_AWS requires DOCKER_BUILD=true: the six images must be built and pushed to ECR.'
+                    }
+
+                    def selected = selectServices(SERVICES.keySet() as List, FRONTEND,
+                                                 GLOBAL_PATHS, BACKEND_PATHS)
+
+                    // Terraform/Helm uses one image tag for every service, so a deploy
+                    // must build and push the whole set, not only the changed services.
+                    if (env.DEPLOY_AWS == 'true') {
+                        selected = (SERVICES.keySet() as List) + [FRONTEND]
+                        env.DEPLOY_TAG = "${env.BUILD_NUMBER}-${sh(script: 'git rev-parse --short HEAD', returnStdout: true).trim()}"
+                        echo "AWS deploy: forcing all components, image tag ${env.DEPLOY_TAG}"
+                    }
+
+                    env.SELECTED_SERVICES = selected.join(',')
                     echo "Branch release mode : ${env.IS_RELEASE}"
                     echo "Components to build : ${env.SELECTED_SERVICES ?: '(none)'}"
                     currentBuild.description = env.SELECTED_SERVICES ?: 'no changes'
@@ -121,6 +158,15 @@ pipeline {
                     }
                     branches.failFast = false   // one failing component must not hide the others
                     parallel branches
+                }
+            }
+        }
+
+        stage('Deploy to AWS') {
+            when { expression { env.DEPLOY_AWS == 'true' } }
+            steps {
+                script {
+                    deployToAws((SERVICES.keySet() as List) + [FRONTEND])
                 }
             }
         }
@@ -164,8 +210,17 @@ pipeline {
 @groovy.transform.Field Map serviceResults = [:]
 
 boolean isReleaseBuild() {
-    def branch = (env.BRANCH_NAME ?: env.GIT_BRANCH ?: '').replaceFirst('^origin/', '')
-    return branch == env.RELEASE_BRANCH || params.FORCE_RELEASE
+    return currentBranch() == env.RELEASE_BRANCH || params.FORCE_RELEASE
+}
+
+String currentBranch() {
+    return (env.BRANCH_NAME ?: env.GIT_BRANCH ?: '').replaceFirst('^origin/', '')
+}
+
+boolean isAwsDeployBranch() {
+    def allowed = (env.AWS_DEPLOY_BRANCHES ?: 'develop,main')
+                      .split(',').collect { it.trim() }
+    return allowed.contains(currentBranch())
 }
 
 List selectServices(List backends, String frontend,
@@ -344,6 +399,8 @@ void dockerBuild(String svc, String version) {
             SHA=\$(git rev-parse --short HEAD)
             TAGS="-t \${IMG}:${version} -t \${IMG}:\${SHA}"
             [ "${env.IS_RELEASE}" = "true" ] && TAGS="\$TAGS -t \${IMG}:latest"   # 'latest' only for releases
+            # Single ECR tag shared by every service; consumed by the Terraform deploy.
+            [ "${env.DEPLOY_AWS}" = "true" ] && TAGS="\$TAGS -t gl5-g4-${svc}:\${DEPLOY_TAG}"
 
             DOCKERFILE=Dockerfile
             [ -f Dockerfile.ci ] && DOCKERFILE=Dockerfile.ci                       # reuses the jar built above
@@ -522,6 +579,10 @@ void runFrontend(String svc) {
             stage("${svc}: Docker Build") {
                 dir(svc) {
                     sh 'docker build -t "${IMAGE_NAME}:${IMAGE_TAG}" -t "${IMAGE_NAME}:latest" .'
+                    if (env.DEPLOY_AWS == 'true') {
+                        // Terraform/Helm pulls gl5-g4-frontend-service from ECR.
+                        sh 'docker tag "${IMAGE_NAME}:${IMAGE_TAG}" "gl5-g4-frontend-service:${DEPLOY_TAG}"'
+                    }
                 }
             }
 
@@ -580,6 +641,193 @@ void runFrontend(String svc) {
             sh 'docker rm -f frontend-smoke >/dev/null 2>&1 || true'
         }
     }
+}
+
+// ---------------------------------------------------------------------
+//  AWS deployment (phases 1 to 4.2 of deploy/terraform/README.md)
+//
+//  Credentials come from jenkins-nexus-docker/.env through Compose
+//  (AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY / AWS_SESSION_TOKEN / AWS_REGION).
+//
+//  Terraform state is NOT kept in the workspace (deleteDir() wipes it): it is
+//  copied from/to TF_STATE_DIR on the jenkins-home volume before and after the
+//  run, together with the ALB hostname and the provider plugin cache.
+//
+//    1. ECR repositories                 terraform apply -target
+//    2. Tag and push all six images      docker tag + docker push
+//    3. VPC/EKS/RDS/Helm application     terraform apply
+//    4. ALB hostname + OIDC issuer       terraform apply -var public_hostname
+//    5. Keycloak + API Gateway rollouts  kubectl rollout status
+// ---------------------------------------------------------------------
+
+void deployToAws(List components) {
+    def region     = params.AWS_REGION?.trim() ?: 'us-east-1'
+    def cluster    = params.AWS_CLUSTER_NAME?.trim() ?: 'gl5-g4'
+    def stateDir   = params.TF_STATE_DIR?.trim() ?: '/var/jenkins_home/aws-terraform'
+    def kubeconfig = "${stateDir}/kubeconfig"
+    def tag        = env.DEPLOY_TAG
+    def images     = components.collect { "gl5-g4-${it}" }
+    def tfVars     = "-var aws_region=${region} -var cluster_name=${cluster}"
+    def tfEnv      = "TF_IN_AUTOMATION=1 TF_PLUGIN_CACHE_DIR=${stateDir}/plugin-cache"
+
+    try {
+        stage('AWS: Preflight') {
+            sh """
+                set -eu
+                missing=''
+                for tool in aws terraform kubectl helm docker; do
+                  command -v "\$tool" >/dev/null 2>&1 || missing="\$missing \$tool"
+                done
+                if [ -n "\$missing" ]; then
+                  echo "ERROR: missing tools in this Jenkins agent:\$missing" >&2
+                  echo "The AWS deploy needs aws-cli v2, terraform >= 1.9, kubectl, helm >= 3.16 and docker on PATH." >&2
+                  exit 1
+                fi
+
+                : "\${AWS_ACCESS_KEY_ID:?AWS_ACCESS_KEY_ID is missing: set it in jenkins-nexus-docker/.env and recreate Jenkins}"
+                : "\${AWS_SECRET_ACCESS_KEY:?AWS_SECRET_ACCESS_KEY is missing: set it in jenkins-nexus-docker/.env and recreate Jenkins}"
+                if [ -z "\${AWS_SESSION_TOKEN:-}" ]; then
+                  echo "NOTE: AWS_SESSION_TOKEN is empty (fine for long-lived keys, required for Learner Lab credentials)."
+                fi
+
+                aws --version
+                terraform version
+                helm version --short
+                kubectl version --client
+                aws sts get-caller-identity --region "${region}" --output text
+                docker info >/dev/null
+
+                for img in ${images.join(' ')}; do
+                  docker image inspect "\${img}:${tag}" >/dev/null 2>&1 || {
+                    echo "ERROR: image \${img}:${tag} is missing. Keep DOCKER_BUILD=true and check the Docker stages." >&2
+                    exit 1
+                  }
+                done
+            """
+        }
+
+        stage('AWS: Terraform Init') {
+            dir('deploy/terraform') {
+                sh """
+                    set -eu
+                    mkdir -p "${stateDir}" "${stateDir}/plugin-cache"
+                    for f in terraform.tfstate terraform.tfstate.backup; do
+                      if [ -f "${stateDir}/\$f" ]; then cp -f "${stateDir}/\$f" "\$f"; fi
+                    done
+                    ${tfEnv} terraform init -input=false
+                """
+            }
+        }
+
+        stage('AWS: Phase 1 - ECR repositories') {
+            dir('deploy/terraform') {
+                sh """
+                    set -eu
+                    ${tfEnv} terraform apply -auto-approve -input=false -target 'aws_ecr_repository.app' ${tfVars}
+                """
+            }
+        }
+
+        stage('AWS: Phase 2 - Build & push images') {
+            sh """
+                set -eu
+                ACCOUNT_ID=\$(aws sts get-caller-identity --query Account --output text --region "${region}")
+                REGISTRY="\${ACCOUNT_ID}.dkr.ecr.${region}.amazonaws.com"
+                aws ecr get-login-password --region "${region}" | docker login --username AWS --password-stdin "\$REGISTRY"
+
+                for img in ${images.join(' ')}; do
+                  echo "Pushing \$REGISTRY/\${img}:${tag}"
+                  docker tag "\${img}:${tag}" "\$REGISTRY/\${img}:${tag}"
+                  docker push "\$REGISTRY/\${img}:${tag}"
+                  if [ "${env.IS_RELEASE}" = "true" ]; then
+                    docker tag "\${img}:${tag}" "\$REGISTRY/\${img}:latest"
+                    docker push "\$REGISTRY/\${img}:latest"
+                  fi
+                done
+            """
+        }
+
+        stage('AWS: Phase 3 - Provision & deploy') {
+            // Keep the issuer stable across builds: reuse the hostname discovered last time.
+            def savedHost = readStateFile(stateDir, 'public_hostname')
+            def hostArg   = savedHost ? "-var public_hostname=${savedHost}" : ''
+            dir('deploy/terraform') {
+                sh """
+                    set -eu
+                    ${tfEnv} terraform apply -auto-approve -input=false ${tfVars} -var image_tag=${tag} ${hostArg}
+                """
+            }
+            sh """
+                set -eu
+                aws eks update-kubeconfig --name "${cluster}" --region "${region}" --kubeconfig "${kubeconfig}"
+                KUBECONFIG="${kubeconfig}" kubectl get nodes
+            """
+        }
+
+        stage('AWS: Phase 4.1 - ALB hostname') {
+            def alb = ''
+            // No timeout for now: poll until the AWS Load Balancer Controller
+            // publishes the Ingress hostname.
+            waitUntil(initialRecurrencePeriod: 10000, quiet: true) {
+                alb = sh(
+                    script: "KUBECONFIG='${kubeconfig}' kubectl -n gl5-student get ingress frontend -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || true",
+                    returnStdout: true
+                ).trim()
+                return alb != ''
+            }
+
+            echo "ALB hostname: ${alb}"
+            dir('deploy/terraform') {
+                sh """
+                    set -eu
+                    ${tfEnv} terraform apply -auto-approve -input=false ${tfVars} -var image_tag=${tag} -var public_hostname=${alb}
+                """
+            }
+            sh "echo '${alb}' > '${stateDir}/public_hostname'"
+
+            env.AWS_APP_URL = "http://${alb}/"
+            currentBuild.description = "${env.SELECTED_SERVICES} @ ${tag} -> ${env.AWS_APP_URL}"
+            echo "Application URL: ${env.AWS_APP_URL}"
+        }
+
+        stage('AWS: Phase 4.2 - Wait for rollouts') {
+            try {
+                sh """
+                    set -eu
+                    KUBECONFIG="${kubeconfig}" kubectl -n gl5-student rollout status deployment/keycloak
+                    KUBECONFIG="${kubeconfig}" kubectl -n gl5-student rollout status deployment/api-gateway
+                """
+            } catch (err) {
+                sh """
+                    set +e
+                    KUBECONFIG="${kubeconfig}" kubectl -n gl5-student get pods -o wide
+                    KUBECONFIG="${kubeconfig}" kubectl -n gl5-student get events --sort-by=.lastTimestamp | tail -n 30
+                    KUBECONFIG="${kubeconfig}" kubectl -n gl5-student logs deployment/keycloak --tail=100
+                    KUBECONFIG="${kubeconfig}" kubectl -n gl5-student logs deployment/api-gateway --tail=100
+                    exit 0
+                """
+                throw err
+            }
+        }
+    } finally {
+        // Persist the state even when a phase failed, so the next run can resume.
+        dir('deploy/terraform') {
+            sh """
+                set -eu
+                mkdir -p "${stateDir}"
+                for f in terraform.tfstate terraform.tfstate.backup; do
+                  if [ -f "\$f" ]; then cp -f "\$f" "${stateDir}/"; fi
+                done
+            """
+        }
+    }
+}
+
+String readStateFile(String stateDir, String name) {
+    return sh(
+        script: "cat '${stateDir}/${name}' 2>/dev/null || true",
+        returnStdout: true
+    ).trim()
 }
 
 // Publishes the built Angular app (dist/) as a versioned .tar.gz to a Nexus RAW hosted repo.

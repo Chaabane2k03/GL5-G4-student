@@ -23,6 +23,11 @@ services:
       PER_SERVICE_JOBS: ${PER_SERVICE_JOBS:-false}
       NEXUS_USER: ${NEXUS_USER:-admin}
       NEXUS_PASSWORD: ${NEXUS_PASSWORD:-}
+      # AWS / Terraform deployment (Jenkinsfile stage "Deploy to AWS").
+      # Learner Lab credentials are temporary: refresh them, then recreate Jenkins.
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
+      AWS_SESSION_TOKEN: ${AWS_SESSION_TOKEN:-}
       DOCKER_HOST: unix:///var/run/docker.sock
       TESTCONTAINERS_HOST_OVERRIDE: host.docker.internal
       TESTCONTAINERS_RYUK_DISABLED: "true"

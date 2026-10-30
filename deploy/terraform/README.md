@@ -115,6 +115,13 @@ deploy/terraform/
 
 ### 0.1 Configure AWS Credentials
 
+> [!TIP]
+> When the deployment is run from Jenkins, these credentials come from
+> `jenkins-nexus-docker/.env` (Compose injects them into the container) and the
+> `Deploy to AWS` stage executes phases 1 to 4.2 automatically. See
+> [`JENKINS.md`](../../JENKINS.md#8-aws-credentials-and-terraform-deployment).
+> The manual commands below remain the reference for local runs.
+
 Learner Lab credentials expire periodically. Export your temporary credentials before running any commands.
 
 <details open>

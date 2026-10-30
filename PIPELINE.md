@@ -104,6 +104,11 @@ services are independent at build time).
 
 Pull request builds never publish to Nexus.
 
+The root pipeline also exposes `DEPLOY_AWS` (default `false`), `AWS_REGION`,
+`AWS_CLUSTER_NAME` and `TF_STATE_DIR` for the Terraform deployment (phases 1
+to 4.2 of [`deploy/terraform/README.md`](deploy/terraform/README.md)). It is
+only honoured on `develop` and `main`; see [JENKINS.md](JENKINS.md#8-aws-credentials-and-terraform-deployment).
+
 ## Running it
 
 1. Jenkins → `service-pipelines` → `all-services`.
