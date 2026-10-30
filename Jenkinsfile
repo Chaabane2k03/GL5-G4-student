@@ -9,8 +9,9 @@
 //    Version -> Build & Test -> [ SonarQube || Docker build ] -> Quality Gate -> Publish to Nexus (Maven)
 //
 //  Frontend flow:
-//    Install -> Lint -> Test & Coverage -> Build -> SonarQube -> Quality Gate
+//    Version -> Install -> Lint -> Test & Coverage -> Build -> SonarQube -> Quality Gate
 //             -> Docker Build -> Smoke Test -> (optional) Publish image to Nexus Docker registry
+//             -> Publish dist archive to Nexus (raw repo, release/snapshot like the backend)
 //
 //  Only components whose files changed are built (or all, via BUILD_ALL / Jenkinsfile change).
 // =====================================================================
@@ -50,7 +51,7 @@ pipeline {
     environment {
         NOTIFY_EMAIL     = 'chaabaneboussadia@gmail.com'
         RELEASE_BRANCH   = 'main'
-        DEFAULT_VERSION_PREFIX = '1.0'   // backend services publish as 1.0.<build number>
+        DEFAULT_VERSION_PREFIX = '1.0'   // all components publish as 1.0.<build number>
         // MAVEN_OPTS (shared local repo) is already set by docker-compose.jenkins.yml
     }
 
@@ -65,11 +66,11 @@ pipeline {
         booleanParam(name: 'DOCKER_BUILD', defaultValue: true,
             description: 'Build Docker images for the backend services (the frontend always builds its image)')
 
-        // ---- backend ----
+        // ---- release / versioning (backend + frontend) ----
         booleanParam(name: 'FORCE_RELEASE', defaultValue: false,
             description: 'Force release deployment to Nexus regardless of git branch')
         string(name: 'OVERRIDE_VERSION', defaultValue: '',
-            description: 'Optional manual version override for backend services (e.g. 1.2.0)')
+            description: 'Optional manual version override for all components (e.g. 1.2.0)')
 
         // ---- frontend ----
         string(name: 'FRONTEND_IMAGE_NAME', defaultValue: 'gl5-g4-frontend-service',
@@ -86,6 +87,8 @@ pipeline {
             description: 'Nexus Docker connector as seen from Jenkins')
         string(name: 'NEXUS_DOCKER_REPOSITORY', defaultValue: 'docker-hosted',
             description: 'Nexus Docker hosted repository name')
+        booleanParam(name: 'PUBLISH_FRONTEND_ARCHIVE', defaultValue: true,
+            description: 'Publish the frontend dist archive (.tar.gz) to the Nexus raw repositories')
     }
 
     stages {
@@ -239,6 +242,19 @@ String ciEnv() {
     return '[ -f ci.env ] && set -a && . ./ci.env && set +a || true'
 }
 
+// Shared by backend and frontend: 1.0.<build> for releases, 1.0.<build>-SNAPSHOT otherwise.
+String resolveVersion() {
+    if (params.OVERRIDE_VERSION?.trim()) {
+        return params.OVERRIDE_VERSION.trim()
+    }
+    // Optional per-component prefix from ci.env (e.g. VERSION_PREFIX=1.0), as in the original pipelines.
+    def prefix = sh(script: "${ciEnv()}\necho \"\${VERSION_PREFIX:-}\"", returnStdout: true).trim()
+    // Priority: ci.env VERSION_PREFIX > pipeline default (1.0) -> every component publishes as 1.0.<build>
+    def root = prefix ?: env.DEFAULT_VERSION_PREFIX
+    return env.IS_RELEASE == 'true' ? "${root}.${env.BUILD_NUMBER}"
+                                    : "${root}.${env.BUILD_NUMBER}-SNAPSHOT"
+}
+
 // ---------------------------------------------------------------------
 //  Backend (Maven) pipeline
 // ---------------------------------------------------------------------
@@ -303,18 +319,6 @@ void runService(String svc, String displayName) {
         serviceResults[svc] = 'FAILURE'
         throw err
     }
-}
-
-String resolveVersion() {
-    if (params.OVERRIDE_VERSION?.trim()) {
-        return params.OVERRIDE_VERSION.trim()
-    }
-    // Optional per-service prefix from ci.env (e.g. VERSION_PREFIX=1.0), as in the original pipelines.
-    def prefix = sh(script: "${ciEnv()}\necho \"\${VERSION_PREFIX:-}\"", returnStdout: true).trim()
-    // Priority: ci.env VERSION_PREFIX > pipeline default (1.0) -> every service publishes as 1.0.<build>
-    def root = prefix ?: env.DEFAULT_VERSION_PREFIX
-    return env.IS_RELEASE == 'true' ? "${root}.${env.BUILD_NUMBER}"
-                                    : "${root}.${env.BUILD_NUMBER}-SNAPSHOT"
 }
 
 void sonarAnalysis(String svc, String displayName) {
@@ -403,6 +407,7 @@ void publishToNexus(String svc) {
 // ---------------------------------------------------------------------
 
 void runFrontend(String svc) {
+    def version = ''
     withEnv([
         "IMAGE_NAME=${params.FRONTEND_IMAGE_NAME}",
         "IMAGE_TAG=${env.BUILD_NUMBER}",
@@ -413,6 +418,13 @@ void runFrontend(String svc) {
         "NEXUS_DOCKER_REPOSITORY=${params.NEXUS_DOCKER_REPOSITORY}"
     ]) {
         try {
+            stage("${svc}: Version") {
+                dir(svc) {
+                    version = resolveVersion()   // same logic as the backend services
+                    echo "${svc} -> ${version} (${env.IS_RELEASE == 'true' ? 'release' : 'snapshot'})"
+                }
+            }
+
             stage("${svc}: Install") {
                 dir(svc) { sh 'npm ci --no-audit --no-fund' }
             }
@@ -566,7 +578,7 @@ void runFrontend(String svc) {
             }
 
             if (params.PUBLISH_FRONTEND_IMAGE) {
-                stage("${svc}: Publish to Nexus") {
+                stage("${svc}: Publish image to Nexus") {
                     dir(svc) {
                         withCredentials([usernamePassword(credentialsId: 'nexus-docker',
                                                           usernameVariable: 'NEXUS_USER',
@@ -589,6 +601,12 @@ void runFrontend(String svc) {
                     }
                 }
             }
+
+            if (params.PUBLISH_FRONTEND_ARCHIVE) {
+                stage("${svc}: Publish to Nexus") {
+                    publishFrontendToNexus(svc, version)
+                }
+            }
             serviceResults[svc] = 'SUCCESS'
         } catch (err) {
             serviceResults[svc] = 'FAILURE'
@@ -597,6 +615,46 @@ void runFrontend(String svc) {
             junit allowEmptyResults: true, testResults: "${svc}/coverage/junit.xml"
             archiveArtifacts artifacts: "${svc}/dist/cursus-frontend/**,${svc}/coverage/lcov.info", allowEmptyArchive: true
             sh 'docker rm -f frontend-smoke >/dev/null 2>&1 || true'
+        }
+    }
+}
+
+// Publishes the built Angular app (dist/) as a versioned .tar.gz to a Nexus RAW hosted repo.
+// Same release/snapshot switch, ci.env overrides and 'nexus' credential as the backend.
+//   release  -> gl5-frontend-releases  (1.0.<build>)
+//   snapshot -> gl5-frontend-snapshots (1.0.<build>-SNAPSHOT)
+void publishFrontendToNexus(String svc, String version) {
+    withCredentials([usernamePassword(credentialsId: 'nexus',
+                                      usernameVariable: 'NEXUS_USER',
+                                      passwordVariable: 'NEXUS_PASS')]) {
+        dir(svc) {
+            sh """
+                set -e
+                set +x
+                ${ciEnv()}
+                NEXUS_BASE="\${NEXUS_BASE_URL:-http://host.docker.internal:8081}"
+                RELEASE_REPO="\${NEXUS_FRONTEND_RELEASE_REPO_NAME:-gl5-frontend-releases}"
+                SNAPSHOT_REPO="\${NEXUS_FRONTEND_SNAPSHOT_REPO_NAME:-gl5-frontend-snapshots}"
+
+                if [ "${env.IS_RELEASE}" = "true" ]; then
+                    REPO="\$RELEASE_REPO"
+                else
+                    REPO="\$SNAPSHOT_REPO"
+                fi
+
+                # If Angular outputs to dist/cursus-frontend/browser, change DIST_DIR accordingly.
+                DIST_DIR="dist/cursus-frontend"
+                [ -d "\$DIST_DIR" ] || { echo "ERROR: \$DIST_DIR not found - was the build successful?" >&2; exit 1; }
+
+                ARCHIVE="${svc}-${version}.tar.gz"
+                trap 'rm -f "\$ARCHIVE"' EXIT
+                tar -czf "\$ARCHIVE" -C "\$DIST_DIR" .
+
+                echo "Publishing ${svc} ${version} to \${REPO} (\${NEXUS_BASE})"
+                curl -fsS -u "\$NEXUS_USER:\$NEXUS_PASS" \\
+                  --upload-file "\$ARCHIVE" \\
+                  "\${NEXUS_BASE}/repository/\${REPO}/${svc}/${version}/\$ARCHIVE"
+            """
         }
     }
 }
