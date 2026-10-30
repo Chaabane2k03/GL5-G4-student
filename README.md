@@ -494,3 +494,6 @@ Configuration for each service/profile lives in the separate private repository
 `config-repo`, for example `api-gateway.properties`, `api-gateway-docker.properties`,
 `course-service.properties`, `course-service-docker.properties`,
 `student-service-dev.properties`, and so on.
+
+
+//creating a release using gitflow
