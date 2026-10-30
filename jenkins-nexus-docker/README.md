@@ -49,6 +49,7 @@ JENKINS_PORT=8092
 JENKINS_EXTERNAL_URL=https://raedbettaher.chaabaneboussadia.dev/
 GITHUB_USER=Chaabane2k03
 GITHUB_TOKEN=<GitHub-personal-access-token>
+PER_SERVICE_JOBS=true
 SONAR_TOKEN=<SonarQube-token>
 NEXUS_PORT=8081
 NEXUS_USER=admin
@@ -193,14 +194,28 @@ docker compose -f docker-compose.jenkins.yml up -d --force-recreate jenkins
 Jenkins is reachable at <http://localhost:8092> and, through Cloudflare, at
 <https://raedbettaher.chaabaneboussadia.dev/>.
 
-The five multibranch jobs (`department-service`, `enrollment-service`,
-`student-service`, `course-service`, and `api-gateway`) are created inside the
-`service-pipelines` folder from [`casc.yaml`](./casc.yaml). Every job points at
-the `Chaabane2k03/GL5-G4-student` repository and only builds the `main`,
-`develop`, and `feature/jenkins-nexus` branches.
-Each multibranch job also scans the repository automatically every 24 hours.
-To scan immediately, open a multibranch job and select **Scan Multibranch
-Pipeline Now** from its menu.
+The multibranch jobs are created inside the `service-pipelines` folder from
+[`casc.yaml`](./casc.yaml). Every job points at the `Chaabane2k03/GL5-G4-student`
+repository and only builds the `main`, `develop`, and `feature/jenkins-nexus`
+branches. Each multibranch job scans the repository automatically every 24
+hours; to scan immediately, open it and select **Scan Multibranch Pipeline Now**.
+
+Two job layouts are available:
+
+- `all-services` runs the root [`Jenkinsfile`](../Jenkinsfile): one pipeline that
+  builds only the services touched by a push, in parallel, with tests, SonarQube
+  quality gate, container image and Nexus publishing. This is the recommended
+  layout; see [PIPELINE.md](../PIPELINE.md).
+- `department-service`, `enrollment-service`, `student-service`,
+  `course-service`, and `api-gateway` run the per-service Jenkinsfile of each
+  folder.
+
+Both are created by default, so a push can build twice. Once `all-services` is
+trusted, set this in `.env` and recreate Jenkins:
+
+```dotenv
+PER_SERVICE_JOBS=false
+```
 
 ## 7. Configure the GitHub credential and webhook
 

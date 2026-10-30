@@ -68,6 +68,11 @@ jobs:
 
       def githubToken = System.getenv('GITHUB_TOKEN')
 
+      // Set PER_SERVICE_JOBS=false to stop creating the five per-service jobs
+      // and keep only the single all-services pipeline. Deleting the existing
+      // jobs is manual: Job DSL leaves them in place when they stop being defined.
+      def perServiceJobs = System.getenv('PER_SERVICE_JOBS') != 'false'
+
       def jobs = [
         [name: 'department-service', path: 'department-service', description: 'Multibranch CI/CD pipeline for department-service'],
         [name: 'enrollment-service', path: 'enrollment-service', description: 'Multibranch CI/CD pipeline for enrollment-service'],
@@ -76,49 +81,97 @@ jobs:
         [name: 'api-gateway', path: 'api-gateway', description: 'Multibranch CI/CD pipeline for api-gateway']
       ]
 
-      jobs.each { config ->
-        def jobName = config['name']
-        def servicePath = config['path']
-        multibranchPipelineJob('service-pipelines/' + jobName) {
-          description(config['description'])
-          branchSources {
-            branchSource {
-              source {
-                github {
-                  id(jobName + '-source')
-                  repoOwner('Chaabane2k03')
-                  repository('GL5-G4-student')
-                  repositoryUrl('')
-                  configuredByUrl(false)
-                  if (githubToken) {
-                    credentialsId('github-token')
+      // Single pipeline for the whole repository: root Jenkinsfile builds only
+      // the services touched by a push, in parallel. See PIPELINE.md.
+      multibranchPipelineJob('service-pipelines/all-services') {
+        description('Single CI/CD pipeline for all GL5 services: build, test, SonarQube, container image and Nexus publishing')
+        branchSources {
+          branchSource {
+            source {
+              github {
+                id('all-services-source')
+                repoOwner('Chaabane2k03')
+                repository('GL5-G4-student')
+                repositoryUrl('')
+                configuredByUrl(false)
+                if (githubToken) {
+                  credentialsId('github-token')
+                }
+                traits {
+                  gitHubBranchDiscovery {
+                    strategyId(3)
                   }
-                  traits {
-                    gitHubBranchDiscovery {
-                      strategyId(3)
-                    }
-                    headWildcardFilter {
-                      includes('main develop feature/jenkins-nexus')
-                      excludes('')
-                    }
+                  headWildcardFilter {
+                    includes('main develop feature/jenkins-nexus')
+                    excludes('')
                   }
                 }
               }
             }
           }
-          factory {
-            workflowBranchProjectFactory {
-              scriptPath(servicePath + '/Jenkinsfile')
-            }
+        }
+        factory {
+          workflowBranchProjectFactory {
+            scriptPath('Jenkinsfile')
           }
-          triggers {
-            periodicFolderTrigger {
-              interval('1d')
-            }
+        }
+        triggers {
+          periodicFolderTrigger {
+            interval('1d')
           }
-          orphanedItemStrategy {
-            discardOldItems {
-              numToKeep(10)
+        }
+        orphanedItemStrategy {
+          discardOldItems {
+            numToKeep(10)
+          }
+        }
+      }
+
+      if (perServiceJobs) {
+        jobs.each { config ->
+          def jobName = config['name']
+          def servicePath = config['path']
+          multibranchPipelineJob('service-pipelines/' + jobName) {
+            description(config['description'])
+            branchSources {
+              branchSource {
+                source {
+                  github {
+                    id(jobName + '-source')
+                    repoOwner('Chaabane2k03')
+                    repository('GL5-G4-student')
+                    repositoryUrl('')
+                    configuredByUrl(false)
+                    if (githubToken) {
+                      credentialsId('github-token')
+                    }
+                    traits {
+                      gitHubBranchDiscovery {
+                        strategyId(3)
+                      }
+                      headWildcardFilter {
+                        includes('main develop feature/jenkins-nexus')
+                        excludes('')
+                      }
+                    }
+                  }
+                }
+              }
+            }
+            factory {
+              workflowBranchProjectFactory {
+                scriptPath(servicePath + '/Jenkinsfile')
+              }
+            }
+            triggers {
+              periodicFolderTrigger {
+                interval('1d')
+              }
+            }
+            orphanedItemStrategy {
+              discardOldItems {
+                numToKeep(10)
+              }
             }
           }
         }

@@ -153,14 +153,35 @@ The command should report that the webhook was registered or already exists.
 
 ## Running pipelines
 
+There are two entry points, both inside the `service-pipelines` folder:
+
+- `all-services` runs the root [`Jenkinsfile`](Jenkinsfile): one pipeline for the
+  whole repository that builds only the services touched by the push, in
+  parallel, with tests, SonarQube quality gate, container image and Nexus
+  publishing. See [PIPELINE.md](PIPELINE.md) for the stages, parameters and
+  change-detection rules.
+- `department-service`, `enrollment-service`, `student-service`,
+  `course-service` and `api-gateway` run the per-service Jenkinsfile of each
+  folder.
+
+To run the single pipeline:
+
 1. Open Jenkins and enter the `service-pipelines` folder.
-2. Open a service multibranch job.
+2. Open `all-services`.
 3. If necessary, select **Scan Multibranch Pipeline Now**.
-4. Open a discovered branch child job such as `feature/jenkins-nexus`.
-5. Select **Build Now**.
+4. Open the discovered branch child job such as `feature/jenkins-nexus`.
+5. Select **Build Now**, or **Build with Parameters** and set `BUILD_MODE=all`
+   to rebuild every service.
+
+To verify that change detection is doing what you expect, read the
+`Detect changes` stage: it prints the scope and the list of services it selected.
 
 The parent multibranch job's successful indexing build is not a service build.
 It only discovers branches and Jenkinsfiles.
+
+`PER_SERVICE_JOBS=false` (in `jenkins-nexus-docker/.env`, then recreate Jenkins)
+stops creating the per-service jobs; delete the existing ones by hand if you
+want `all-services` to be the only job.
 
 Run builds one at a time when Docker has limited memory. Before running
 pipelines that use application ports, stop the application stack if needed:
