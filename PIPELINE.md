@@ -3,7 +3,9 @@
 `Jenkinsfile` at the repository root is the single CI/CD entry point for the
 whole monorepo. It replaces the need to open five separate jobs: one
 multibranch job, `service-pipelines/all-services`, builds every service that a
-push actually touched, in parallel, with the same quality contract.
+push actually touched, in parallel, with the same quality contract. The
+`MAX_PARALLEL_SERVICES` parameter limits the number of component branches that
+run at once; use `1` or `2` on a memory-constrained Docker host.
 
 The per-service `Jenkinsfile` files are still supported and still work. They are
 the independent entry point for one service; the root `Jenkinsfile` is the
@@ -25,6 +27,12 @@ Checkout
   └─ Build report                  per-service markdown table + description
 post: JUnit results, jars, notification
 ```
+
+For the first run after restarting Docker or Jenkins, use
+`MAX_PARALLEL_SERVICES=1`, `DOCKER_BUILD=false`, and
+`DEPLOY_AWS=false`. Once the tests pass, raise the concurrency to `2` and
+enable Docker builds. AWS deployment is allowed only on the dedicated
+`feature/aws-deployment` branch, `develop`, or `main`.
 
 ## Pipeline contract per service
 
