@@ -61,6 +61,8 @@ pipeline {
             description: 'Build every component (backend + frontend), ignoring change detection')
         string(name: 'ONLY_SERVICES', defaultValue: '',
             description: 'Optional comma-separated list of components to build (e.g. api-gateway,student-service,frontend-service)')
+        choice(name: 'MAX_PARALLEL_SERVICES', choices: ['1', '2', '3'],
+            description: 'Maximum number of components built concurrently. Use 1 on memory-constrained Docker hosts.')
         booleanParam(name: 'ENFORCE_QUALITY_GATE', defaultValue: true,
             description: 'Fail a component if its SonarQube quality gate fails')
         booleanParam(name: 'DOCKER_BUILD', defaultValue: true,
@@ -109,18 +111,23 @@ pipeline {
             when { expression { env.SELECTED_SERVICES } }
             steps {
                 script {
-                    def branches = [:]
-                    for (String svc : env.SELECTED_SERVICES.split(',')) {
-                        def name = svc
-                        if (name == FRONTEND) {
-                            branches[name] = { runFrontend(name) }
-                        } else {
-                            def displayName = SERVICES[name]
-                            branches[name] = { runService(name, displayName) }
+                    def selected = env.SELECTED_SERVICES.split(',').findAll { it }
+                    def limit = Math.max(1, (params.MAX_PARALLEL_SERVICES ?: '2').toInteger())
+                    selected.collate(limit).eachWithIndex { batch, batchIndex ->
+                        echo "Starting component batch ${batchIndex + 1}: ${batch.join(', ')}"
+                        def branches = [:]
+                        for (String svc : batch) {
+                            def name = svc
+                            if (name == FRONTEND) {
+                                branches[name] = { runFrontend(name) }
+                            } else {
+                                def displayName = SERVICES[name]
+                                branches[name] = { runService(name, displayName) }
+                            }
                         }
+                        branches.failFast = false
+                        parallel branches
                     }
-                    branches.failFast = false   // one failing component must not hide the others
-                    parallel branches
                 }
             }
         }
