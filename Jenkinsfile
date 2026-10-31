@@ -429,7 +429,10 @@ void publishToNexus(String svc) {
             sh """
                 set +x
                 ${ciEnv()}
-                NEXUS_BASE="\${NEXUS_BASE_URL:-http://host.docker.internal:8081}"
+                # Jenkins and Nexus share the gl5-jenkins-nexus network. Use the
+                # container endpoint by default; host.docker.internal:8081 is not
+                # valid when Nexus is published on a different host port.
+                NEXUS_BASE="\${NEXUS_BASE_URL:-http://nexus-igl5:8081}"
                 RELEASE_REPO="\${NEXUS_RELEASE_REPO_NAME:-gl5-student-releases}"
                 SNAPSHOT_REPO="\${NEXUS_SNAPSHOT_REPO_NAME:-gl5-student-snapshots}"
                 RELEASE_ID="\${NEXUS_RELEASE_REPO_ID:-nexus-releases}"
@@ -891,7 +894,7 @@ void publishFrontendToNexus(String svc, String version) {
                 set -e
                 set +x
                 ${ciEnv()}
-                NEXUS_BASE="\${NEXUS_BASE_URL:-http://host.docker.internal:8081}"
+                NEXUS_BASE="\${NEXUS_BASE_URL:-http://nexus-igl5:8081}"
                 RELEASE_REPO="\${NEXUS_FRONTEND_RELEASE_REPO_NAME:-gl5-frontend-releases}"
                 SNAPSHOT_REPO="\${NEXUS_FRONTEND_SNAPSHOT_REPO_NAME:-gl5-frontend-snapshots}"
 
@@ -901,8 +904,7 @@ void publishFrontendToNexus(String svc, String version) {
                     REPO="\$SNAPSHOT_REPO"
                 fi
 
-                # If Angular outputs to dist/cursus-frontend/browser, change DIST_DIR accordingly.
-                DIST_DIR="dist/cursus-frontend"
+                DIST_DIR="dist/cursus-frontend/browser"
                 [ -d "\$DIST_DIR" ] || { echo "ERROR: \$DIST_DIR not found - was the build successful?" >&2; exit 1; }
 
                 ARCHIVE="${svc}-${version}.tar.gz"

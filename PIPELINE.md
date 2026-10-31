@@ -46,6 +46,11 @@ enable Docker builds. AWS deployment is allowed only on the dedicated
 The jar built in **Build & test** is the jar used by the image (`Dockerfile.ci`
 copies `target/*.jar`) and by Nexus. Nothing is compiled twice.
 
+The frontend archive is created from `frontend-service/dist/cursus-frontend/browser`,
+which is the Angular production output copied into the Nginx image. Frontend Nexus
+publishing uses the internal `nexus-igl5:8081` endpoint when no service override is
+provided.
+
 ### Image tags
 
 | Tag | When | Meaning |
