@@ -352,6 +352,54 @@ kubectl run test -n default --rm -it --image=busybox:1.36 --restart=Never -- \
 ## Observabilité
 Les microservices envoient les traces OTLP vers l'endpoint configuré (`OTEL_EXPORTER_OTLP_ENDPOINT`). Sur Minikube, pointer vers l'hôte Docker (`http://192.168.49.1:4318/v1/traces`).
 
+### Prometheus + Grafana sur Minikube
+
+Le profil Minikube active les `ServiceMonitor` de l'application. Le stack
+`kube-prometheus-stack` est installé dans le namespace `observability` avec
+`deploy/helm/values/minikube/observability.yaml`, qui sélectionne les
+`ServiceMonitor` de tous les namespaces et importe le dashboard
+`observability/grafana/dashboards/spring-services.json`.
+
+```bash
+# 1. Stack de monitoring (une seule fois)
+helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+helm repo update prometheus-community
+helm upgrade --install monitoring prometheus-community/kube-prometheus-stack \
+  -n observability --create-namespace \
+  --version 92.14.1 \
+  -f deploy/helm/values/minikube/observability.yaml
+
+# 2. Dashboard GL5-G4 (le sidecar Grafana le découvre automatiquement)
+kubectl create configmap gl5-g4-spring-services -n observability \
+  --from-file=gl5-g4-spring-services.json=observability/grafana/dashboards/spring-services.json \
+  --dry-run=client -o yaml | kubectl apply -f -
+kubectl label configmap gl5-g4-spring-services -n observability \
+  grafana_dashboard=1 --overwrite
+
+# 3. Application (avec observability.serviceMonitor.enabled: true)
+helm dependency update ./deploy/helm/umbrella/gl5-student
+helm upgrade --install gl5-student ./deploy/helm/umbrella/gl5-student \
+  -n gl5-student --create-namespace \
+  -f ./deploy/helm/values/minikube/gl5-student.yaml
+```
+
+Accès local (le host `gl5-g4.test` doit pointer vers `127.0.0.1`) :
+
+```bash
+# Frontend/Keycloak à travers l'Ingress Nginx
+kubectl -n ingress-nginx port-forward svc/ingress-nginx-controller 443:443
+
+# Grafana (admin / admin)
+kubectl -n observability port-forward svc/monitoring-grafana 3000:80
+
+# Prometheus
+kubectl -n observability port-forward svc/monitoring-prometheus 9090:9090
+```
+
+- Frontend : `https://gl5-g4.test/` (certificat auto-signé)
+- Grafana : `http://localhost:3000` → dashboard **GL5-G4 / GL5-G4 Spring Services**
+- Prometheus : `http://localhost:9090` → `Status > Targets` (jobs `api-gateway`, `student-service`, ...)
+
 ## Dépannage
 
 ### Vérifier les pods

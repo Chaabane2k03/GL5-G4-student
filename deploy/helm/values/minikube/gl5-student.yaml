@@ -41,7 +41,7 @@ api-gateway:
   env:
     # The observability stack runs on the Docker host, which the Minikube
     # nodes reach through the Docker bridge gateway.
-    OTEL_EXPORTER_OTLP_ENDPOINT: http://192.168.49.1:4318/v1/traces
+    OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger.observability.svc.cluster.local:4318/v1/traces
     KEYCLOAK_ISSUER_URI: https://gl5-g4.test/auth/realms/gl5
   config:
     # Keep JWKS traffic inside the cluster while validating the public issuer
@@ -58,7 +58,7 @@ api-gateway:
 
 student-service:
   env:
-    OTEL_EXPORTER_OTLP_ENDPOINT: http://192.168.49.1:4318/v1/traces
+    OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger.observability.svc.cluster.local:4318/v1/traces
   javaOpts: "-XX:MaxRAMPercentage=45 -XX:+ExitOnOutOfMemoryError"
   resources:
     requests:
@@ -70,7 +70,7 @@ student-service:
 
 course-service:
   env:
-    OTEL_EXPORTER_OTLP_ENDPOINT: http://192.168.49.1:4318/v1/traces
+    OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger.observability.svc.cluster.local:4318/v1/traces
   javaOpts: "-XX:MaxRAMPercentage=45 -XX:+ExitOnOutOfMemoryError"
   resources:
     requests:
@@ -82,7 +82,7 @@ course-service:
 
 department-service:
   env:
-    OTEL_EXPORTER_OTLP_ENDPOINT: http://192.168.49.1:4318/v1/traces
+    OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger.observability.svc.cluster.local:4318/v1/traces
   javaOpts: "-XX:MaxRAMPercentage=45 -XX:+ExitOnOutOfMemoryError"
   resources:
     requests:
@@ -94,7 +94,7 @@ department-service:
 
 enrollment-service:
   env:
-    OTEL_EXPORTER_OTLP_ENDPOINT: http://192.168.49.1:4318/v1/traces
+    OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger.observability.svc.cluster.local:4318/v1/traces
   javaOpts: "-XX:MaxRAMPercentage=45 -XX:+ExitOnOutOfMemoryError"
   resources:
     requests:
@@ -136,6 +136,15 @@ networkPolicy:
   ingressNamespace: ingress-nginx
   ingressCidrBlocks: []
   observabilityNamespace: observability
+
+# The local kube-prometheus-stack release (deploy/helm/values/minikube/
+# observability.yaml) selects every ServiceMonitor, so the application chart
+# only has to publish one per Spring service.
+observability:
+  serviceMonitor:
+    enabled: true
+    interval: 30s
+    scrapeTimeout: 10s
 
 # The databases run inside the cluster on Minikube.
 rds:

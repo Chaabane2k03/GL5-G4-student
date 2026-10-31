@@ -1,0 +1,128 @@
+# ---------------------------------------------------------------------------
+# Values for kube-prometheus-stack on the local Minikube cluster (docker driver).
+#
+# Install with:
+#   helm upgrade --install monitoring prometheus-community/kube-prometheus-stack \
+#     -n observability --create-namespace \
+#     --version 92.14.1 \
+#     -f deploy/helm/values/minikube/observability.yaml
+#
+# The application chart publishes one ServiceMonitor per Spring service; the
+# Prometheus instance below selects ServiceMonitors from every namespace so no
+# release label is required on them.
+# ---------------------------------------------------------------------------
+
+fullnameOverride: monitoring
+
+# Minikube is a single-node learning cluster: keep Alertmanager out and skip
+# the control-plane scrapers that are not exposed (same choices as EKS).
+alertmanager:
+  enabled: false
+kubeEtcd:
+  enabled: false
+kubeControllerManager:
+  enabled: false
+kubeScheduler:
+  enabled: false
+kubeProxy:
+  enabled: false
+
+grafana:
+  adminUser: admin
+  adminPassword: admin
+
+  # The datasource provisioned by the chart already has uid "prometheus",
+  # which is the uid referenced by the GL5-G4 dashboard.
+  #
+  # Jaeger and Loki are deployed by observability/kubernetes (kustomize).
+  # Grafana reaches them through their in-cluster Services.
+  additionalDataSources:
+    - name: Loki
+      uid: loki
+      type: loki
+      access: proxy
+      url: http://loki:3100
+      editable: false
+    - name: Jaeger
+      uid: jaeger
+      type: jaeger
+      access: proxy
+      url: http://jaeger:16686
+      editable: false
+
+  service:
+    type: ClusterIP
+
+  # The dashboard JSON lives in observability/grafana/dashboards and is
+  # imported as a ConfigMap labelled grafana_dashboard=1 (see
+  # deploy/helm/README.md and the commands in the deployment notes).
+  sidecar:
+    dashboards:
+      enabled: true
+      label: grafana_dashboard
+      labelValue: "1"
+      searchNamespace: ALL
+
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+prometheus:
+  service:
+    type: ClusterIP
+
+  prometheusSpec:
+    # Short retention: the local node has a 6 GiB memory budget for the whole
+    # application + monitoring stack.
+    retention: 6h
+
+    # Discover the ServiceMonitors published by the application chart in the
+    # gl5-student namespace.
+    serviceMonitorSelectorNilUsesHelmValues: false
+    serviceMonitorSelector: {}
+    serviceMonitorNamespaceSelector: {}
+    podMonitorSelectorNilUsesHelmValues: false
+    podMonitorSelector: {}
+    podMonitorNamespaceSelector: {}
+    ruleSelectorNilUsesHelmValues: false
+    ruleSelector: {}
+    ruleNamespaceSelector: {}
+
+    resources:
+      requests:
+        cpu: 100m
+        memory: 512Mi
+      limits:
+        cpu: "1"
+        memory: 1Gi
+
+prometheusOperator:
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 300m
+      memory: 256Mi
+
+kube-state-metrics:
+  resources:
+    requests:
+      cpu: 20m
+      memory: 32Mi
+    limits:
+      cpu: 100m
+      memory: 128Mi
+
+prometheus-node-exporter:
+  resources:
+    requests:
+      cpu: 20m
+      memory: 32Mi
+    limits:
+      cpu: 100m
+      memory: 128Mi

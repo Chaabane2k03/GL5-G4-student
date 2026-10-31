@@ -1,0 +1,31 @@
+# ---------------------------------------------------------------------------
+# Jaeger + Loki + Alloy for the local Minikube cluster.
+#
+#   kubectl apply -k observability
+#
+# The ConfigMaps are generated from the files already used by the Docker
+# Compose observability stack, so there is a single source of truth for the
+# Loki configuration. The Kustomization lives at the root of the observability
+# directory because Kustomize refuses to read files outside its root.
+# ---------------------------------------------------------------------------
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: observability
+
+resources:
+  - kubernetes/jaeger.yaml
+  - kubernetes/loki.yaml
+  - kubernetes/alloy.yaml
+
+configMapGenerator:
+  - name: loki-config
+    files:
+      - loki-config.yml=loki/loki-config.yml
+  - name: alloy-config
+    files:
+      - config.alloy=alloy/config.kubernetes.alloy
+
+generatorOptions:
+  # The Deployments reference the ConfigMaps by their stable names.
+  disableNameSuffixHash: true
