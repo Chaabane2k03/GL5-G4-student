@@ -110,7 +110,7 @@ jobs:
                     strategyId(3)
                   }
                   headWildcardFilter {
-                    includes('main develop feature/jenkins-nexus')
+                    includes('main develop feature/jenkins-nexus feature/aws-deployment')
                     excludes('')
                   }
                 }
@@ -158,7 +158,7 @@ jobs:
                         strategyId(3)
                       }
                       headWildcardFilter {
-                        includes('main develop feature/jenkins-nexus')
+                        includes('main develop feature/jenkins-nexus feature/aws-deployment')
                         excludes('')
                       }
                     }
