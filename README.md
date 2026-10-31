@@ -109,6 +109,7 @@ CONFIG_USER=config
 CONFIG_PASSWORD=change-me-to-a-strong-password
 ENCRYPT_KEY=the-project-shared-encryption-key
 ```
+test
 
 > Never commit `.env`. It is already listed in `.gitignore`.
 
