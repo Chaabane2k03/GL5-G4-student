@@ -244,21 +244,34 @@ curl -X POST http://localhost:8072/department/api/departments \
 
 Every backend service serves its own documentation under its context path
 (Swagger UI at `/swagger-ui.html`, spec at `/v3/api-docs`), and the API Gateway provides a
-single aggregated Swagger UI:
+single aggregated Swagger UI listing **all five APIs** (the gateway plus the four backends):
 
 | Documentation                    | URL                                                       |
 | -------------------------------- | --------------------------------------------------------- |
-| **All services (via gateway)**   | `http://localhost:8072/swagger-ui.html`                    |
+| **All APIs (via gateway)**       | `http://localhost:8072/swagger-ui.html`                    |
+| Gateway spec (via gateway)       | `http://localhost:8072/v3/api-docs`                        |
+| Department spec (via gateway)    | `http://localhost:8072/department/v3/api-docs`             |
+| Enrollment spec (via gateway)    | `http://localhost:8072/enrollment/v3/api-docs`             |
+| Course spec (via gateway)        | `http://localhost:8072/course/v3/api-docs`                 |
+| Student spec (via gateway)       | `http://localhost:8072/student/v3/api-docs`                |
 | Department (direct)              | `http://localhost:8082/department/swagger-ui.html`         |
 | Enrollment (direct)              | `http://localhost:8083/enrollment/swagger-ui.html`         |
 | Course (direct)                  | `http://localhost:8084/course/swagger-ui.html`             |
 | Student (direct)                 | `http://localhost:8085/student/swagger-ui.html`            |
-| Gateway spec                     | `http://localhost:8072/v3/api-docs`                        |
 
-The gateway UI exposes a definition selector listing the four backend services; their
-documents are fetched through the gateway itself (`/department/v3/api-docs`, …). Requests
-sent with **Try it out** therefore go through the gateway route, not directly to the
-service. See [`api-gateway/README.md`](./api-gateway/README.md) for details.
+The gateway UI exposes a definition selector with one entry per API; the backend documents
+are fetched through the gateway routes (`/department/v3/api-docs`, …), and `PreserveHostHeader`
+makes each spec advertise the gateway as its server. Requests sent with **Try it out**
+therefore go through the gateway too, not directly to the service.
+
+Each service defines its own title/version/description in an `OpenAPI` bean and accepts the
+`app.openapi.title`, `app.openapi.version` and `app.openapi.description` properties (or the
+matching environment variables) to override them. Add a new API to the aggregated UI by
+declaring one more `springdoc.swagger-ui.urls[n]` entry on the gateway **and** in the
+Config Server copies of `api-gateway.properties` / `api-gateway-docker.properties`.
+
+Infrastructure components (Eureka, Config Server, frontend) are not listed: they expose no
+application REST API. See [`api-gateway/README.md`](./api-gateway/README.md) for details.
 
 ## Reading configuration from the Config Server
 
@@ -389,6 +402,7 @@ cd course-service
 | Two `Access-Control-Allow-Origin` headers appear | A backend `@CrossOrigin` annotation was reintroduced or an extra CORS filter was added. The gateway must be the only CORS source. |
 | Keycloak theme missing after a change | Recreate `keycloak-service`; theme files are mounted read-only and loaded at startup. |
 | Build fails for a service | Make sure you used `docker compose up -d --build` (never pass `--no-build`); all services build from source. |
+| Swagger UI shows Petstore / the definition dropdown is empty | Keep `springdoc.swagger-ui.disable-swagger-default-url=true` (set in every service). Reload with `Ctrl+Shift+R`. Check `/swagger-ui/swagger-initializer.js` (must show `url: ""`) and `/v3/api-docs/swagger-config` (must list 5 urls). |
 
 ## Observability (Prometheus + Grafana + Jaeger + Loki)
 

@@ -136,14 +136,14 @@ Or click the **Authorize** button in Swagger UI (`http://localhost:8072/swagger-
 
 ## 4. Swagger / OpenAPI
 
-The gateway serves its own document and aggregates the four backend documents in a single UI.
+One Swagger UI lists **all five APIs**: the gateway itself plus the four backend services.
 Each definition is fetched **through the gateway routes**, so this works without the browser
 needing direct access to the backend ports. The service selector, tags and operations are
 sorted alphabetically, and endpoint groups start collapsed to keep the page easy to scan.
 
 | Documentation                  | URL                                          |
 | ------------------------------ | -------------------------------------------- |
-| Aggregated Swagger UI          | `http://localhost:8072/swagger-ui.html`      |
+| Aggregated Swagger UI (all APIs)| `http://localhost:8072/swagger-ui.html`      |
 | Gateway's own spec             | `http://localhost:8072/v3/api-docs`          |
 | Department spec (via gateway)  | `http://localhost:8072/department/v3/api-docs` |
 | Course spec (via gateway)      | `http://localhost:8072/course/v3/api-docs`   |
@@ -154,9 +154,12 @@ Configuration (`application.properties`):
 
 ```properties
 springdoc.swagger-ui.path=/swagger-ui.html
-springdoc.swagger-ui.urls[0].name=Course Service
-springdoc.swagger-ui.urls[0].url=/course/v3/api-docs
-# ... one entry per service
+# Definitions are displayed sorted by name, so keep the indices in name order.
+springdoc.swagger-ui.urls[0].name=API Gateway
+springdoc.swagger-ui.urls[0].url=/v3/api-docs
+springdoc.swagger-ui.urls[1].name=Course Service
+springdoc.swagger-ui.urls[1].url=/course/v3/api-docs
+# ... one entry per backend service
 springdoc.swagger-ui.tagsSorter=alpha
 springdoc.swagger-ui.operationsSorter=alpha
 springdoc.swagger-ui.docExpansion=none

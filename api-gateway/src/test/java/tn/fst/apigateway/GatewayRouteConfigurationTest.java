@@ -29,8 +29,13 @@ class GatewayRouteConfigurationTest {
             "course-service", "/course/**",
             "enrollment-service", "/enrollment/**",
             "student-service", "/student/**");
-    private static final List<String> SWAGGER_SERVICE_CONTEXT_PATHS =
-            List.of("/course", "/department", "/enrollment", "/student");
+    // springdoc sorts the definitions by name in the UI, so the gateway's own spec comes first.
+    private static final List<String> SWAGGER_DEFINITION_NAMES =
+            List.of("API Gateway", "Course Service", "Department Service",
+                    "Enrollment Service", "Student Service");
+    private static final List<String> SWAGGER_DEFINITION_URLS =
+            List.of("/v3/api-docs", "/course/v3/api-docs", "/department/v3/api-docs",
+                    "/enrollment/v3/api-docs", "/student/v3/api-docs");
 
     @Autowired
     private RouteDefinitionLocator routeDefinitionLocator;
@@ -80,11 +85,13 @@ class GatewayRouteConfigurationTest {
         assertThat(environment.getProperty("springdoc.swagger-ui.tagsSorter")).isEqualTo("alpha");
         assertThat(environment.getProperty("springdoc.swagger-ui.operationsSorter")).isEqualTo("alpha");
         assertThat(environment.getProperty("springdoc.swagger-ui.docExpansion")).isEqualTo("none");
-        for (int index = 0; index < SWAGGER_SERVICE_CONTEXT_PATHS.size(); index++) {
-            String contextPath = SWAGGER_SERVICE_CONTEXT_PATHS.get(index);
+        for (int index = 0; index < SWAGGER_DEFINITION_URLS.size(); index++) {
+            String name = environment.getProperty(
+                    "springdoc.swagger-ui.urls[" + index + "].name");
             String url = environment.getProperty(
                     "springdoc.swagger-ui.urls[" + index + "].url");
-            assertThat(url).isEqualTo(contextPath + "/v3/api-docs");
+            assertThat(name).isEqualTo(SWAGGER_DEFINITION_NAMES.get(index));
+            assertThat(url).isEqualTo(SWAGGER_DEFINITION_URLS.get(index));
         }
     }
 }

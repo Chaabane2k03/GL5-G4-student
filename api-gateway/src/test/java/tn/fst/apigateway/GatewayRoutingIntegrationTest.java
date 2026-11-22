@@ -42,8 +42,10 @@ class GatewayRoutingIntegrationTest {
 
     private static final List<String> SERVICE_CONTEXT_PATHS =
             List.of("/department", "/course", "/enrollment", "/student");
+    // springdoc sorts the definitions by name in the UI, so the gateway's own spec comes first.
     private static final List<String> SWAGGER_SERVICE_NAMES =
-            List.of("Course Service", "Department Service", "Enrollment Service", "Student Service");
+            List.of("API Gateway", "Course Service", "Department Service",
+                    "Enrollment Service", "Student Service");
 
     private static final StubBackend BACKEND = StubBackend.start();
 
@@ -148,6 +150,18 @@ class GatewayRoutingIntegrationTest {
     }
 
     @Test
+    void swaggerInitializerUsesTheConfiguredDefinitionsInsteadOfPetstore() {
+        webTestClient.get().uri("/swagger-ui/swagger-initializer.js")
+                .exchange()
+                .expectStatus().isOk()
+                .expectBody(String.class)
+                .value(body -> {
+                    assertThat(body).doesNotContain("petstore.swagger.io");
+                    assertThat(body).contains("configUrl");
+                });
+    }
+
+    @Test
     void publishesItsOwnOpenApiDocument() {
         webTestClient.get().uri("/v3/api-docs")
                 .exchange()
@@ -158,19 +172,21 @@ class GatewayRoutingIntegrationTest {
     }
 
     @Test
-    void listsEveryBackendServiceInTheSwaggerConfiguration() {
+    void listsEveryApiInTheSwaggerConfiguration() {
         webTestClient.get().uri("/v3/api-docs/swagger-config")
                 .exchange()
                 .expectStatus().isOk()
                 .expectBody()
                 .jsonPath("$.urls[0].name").isEqualTo(SWAGGER_SERVICE_NAMES.get(0))
-                .jsonPath("$.urls[0].url").isEqualTo("/course/v3/api-docs")
+                .jsonPath("$.urls[0].url").isEqualTo("/v3/api-docs")
                 .jsonPath("$.urls[1].name").isEqualTo(SWAGGER_SERVICE_NAMES.get(1))
-                .jsonPath("$.urls[1].url").isEqualTo("/department/v3/api-docs")
+                .jsonPath("$.urls[1].url").isEqualTo("/course/v3/api-docs")
                 .jsonPath("$.urls[2].name").isEqualTo(SWAGGER_SERVICE_NAMES.get(2))
-                .jsonPath("$.urls[2].url").isEqualTo("/enrollment/v3/api-docs")
+                .jsonPath("$.urls[2].url").isEqualTo("/department/v3/api-docs")
                 .jsonPath("$.urls[3].name").isEqualTo(SWAGGER_SERVICE_NAMES.get(3))
-                .jsonPath("$.urls[3].url").isEqualTo("/student/v3/api-docs")
+                .jsonPath("$.urls[3].url").isEqualTo("/enrollment/v3/api-docs")
+                .jsonPath("$.urls[4].name").isEqualTo(SWAGGER_SERVICE_NAMES.get(4))
+                .jsonPath("$.urls[4].url").isEqualTo("/student/v3/api-docs")
                 .jsonPath("$.tagsSorter").isEqualTo("alpha")
                 .jsonPath("$.operationsSorter").isEqualTo("alpha")
                 .jsonPath("$.docExpansion").isEqualTo("none");

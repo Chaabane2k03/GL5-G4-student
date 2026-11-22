@@ -20,6 +20,11 @@ spring:
   lifecycle:
     timeout-per-shutdown-phase: ${SHUTDOWN_TIMEOUT:30s}
 
+# Keep the service's Swagger UI pointed at its own spec, not springdoc's Petstore default.
+springdoc:
+  swagger-ui:
+    disable-swagger-default-url: true
+
 management:
   endpoints:
     web:
