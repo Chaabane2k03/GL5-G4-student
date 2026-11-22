@@ -1,10 +1,11 @@
 package tn.fst.studentmanagement.command;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import feign.FeignException;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
-import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import tn.fst.studentmanagement.clients.CourseClient;
@@ -16,6 +17,7 @@ import tn.fst.studentmanagement.entities.Status;
 import tn.fst.studentmanagement.exceptions.CourseNotFoundException;
 import tn.fst.studentmanagement.exceptions.EnrollmentNotFoundException;
 import tn.fst.studentmanagement.exceptions.StudentNotFoundException;
+import tn.fst.studentmanagement.integration.OutboxEventRepository;
 import tn.fst.studentmanagement.repositories.EnrollmentRepository;
 
 import java.time.LocalDate;
@@ -42,8 +44,14 @@ class EnrollmentCommandServiceTest {
     @Mock
     private CourseClient courseClient;
 
-    @InjectMocks
     private EnrollmentCommandService commandService;
+
+    @BeforeEach
+    void setUp() {
+        // The async demo flow is opt-in; these tests cover the synchronous CRUD behaviour.
+        commandService = new EnrollmentCommandService(enrollmentRepository, studentClient, courseClient,
+                mock(OutboxEventRepository.class), new ObjectMapper(), false);
+    }
 
     private static StudentDto student() {
         return new StudentDto(7L, "John", "Doe", "john@example.com", "123",

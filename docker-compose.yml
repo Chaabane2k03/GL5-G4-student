@@ -83,6 +83,28 @@ services:
       - gl5-net
     restart: unless-stopped
 
+  # ----------------------------------------------------------- rabbitmq -------
+  # Only used by the demo async flow in enrollment-service (outbox -> audit).
+  rabbitmq:
+    image: rabbitmq:3.13-management
+    container_name: gl5-rabbitmq
+    hostname: rabbitmq
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USERNAME:-guest}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-guest}
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    networks:
+      - gl5-net
+    restart: unless-stopped
+
   # ------------------------------------------------------------- course ------
   course-db:
     image: mysql:8.0
@@ -248,6 +270,8 @@ services:
         condition: service_started
       axon-server:
         condition: service_started
+      rabbitmq:
+        condition: service_healthy
     env_file:
       - path: ./config-server/.env
         format: raw
@@ -258,7 +282,17 @@ services:
       AXON_SERVER_URL: axon-server:8124
       SPRING_AXON_AXONSERVER_SERVERS: axon-server:8124
       AXON_AXONSERVER_SERVERS: axon-server:8124
+      # Record commands/events need Jackson; keep general=XStream for existing tokens.
+      AXON_SERIALIZER_GENERAL: xstream
+      AXON_SERIALIZER_EVENTS: jackson
+      AXON_SERIALIZER_MESSAGES: jackson
       OTEL_EXPORTER_OTLP_ENDPOINT: http://host.docker.internal:4318/v1/traces
+      # Demo async flow only (set to "false" to run without the broker).
+      ENROLLMENT_EVENTS_ENABLED: ${ENROLLMENT_EVENTS_ENABLED:-true}
+      SPRING_RABBITMQ_HOST: rabbitmq
+      SPRING_RABBITMQ_PORT: "5672"
+      SPRING_RABBITMQ_USERNAME: ${RABBITMQ_USERNAME:-guest}
+      SPRING_RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:-guest}
     ports:
       - "8083:8083"
     healthcheck:

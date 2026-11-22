@@ -9,3 +9,17 @@ spring:
     hibernate:
       ddl-auto: create-drop
     open-in-view: false
+
+# Tests must not attach to the shared Axon Server used by the running stack:
+# doing so replays production events with the wrong serializer and logs errors.
+axon:
+  axonserver:
+    enabled: false
+  serializer:
+    general: jackson
+    events: jackson
+    messages: jackson
+  eventhandling:
+    processors:
+      "[tn.fst.courseservice.cqrs]":
+        mode: subscribing

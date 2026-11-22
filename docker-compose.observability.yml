@@ -45,7 +45,9 @@ services:
     restart: unless-stopped
 
   loki:
-    image: grafana/loki:3.5.0
+    # 3.5.0 logs a spurious "negative structured metadata bytes received" error
+    # for pushes without structured metadata (grafana/loki#17371, fixed in 3.5.1).
+    image: grafana/loki:3.5.12
     container_name: gl5-loki
     command: -config.file=/etc/loki/loki-config.yml
     ports:

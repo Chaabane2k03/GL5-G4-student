@@ -18,7 +18,7 @@ whole stack runs with a single **Docker Compose** command.
               |                                |
    +----------v-----------+        +-----------v-----------+
    |      Keycloak        |        |      API Gateway      |  :8072
-   |      :8080           |        |  /department          |
+   |      :8081           |        |  /department          |
    |  realm gl5 / cursus  |        |  /course /enrollment  |
    +----------+-----------+        |  /student             |
               |                    +-----------+-----------+
@@ -47,7 +47,7 @@ whole stack runs with a single **Docker Compose** command.
                                         gl5-net (bridge network)
 ```
 
-The browser talks to the frontend (`:4200`), Keycloak (`:8080`) and the API Gateway
+The browser talks to the frontend (`:4200`), Keycloak (`:8081`) and the API Gateway
 (`:8072`) on the host. The gateway validates Keycloak JWTs and uses the internal Compose
 hostname `keycloak-service` to fetch the signing keys. The login page is served by
 Keycloak using the local `cursus` theme; it is not part of the Angular bundle.
@@ -138,7 +138,7 @@ healthcheck because the official image removes `curl`; the frontend reports `(he
 | Service             | Container               | Port   | Context path    |
 | ------------------- | ----------------------- | ------ | --------------- |
 | Frontend            | `gl5-frontend-service`  | `4200` | `/` (nginx SPA) |
-| Keycloak            | `gl5-keycloak-service`  | `8080` | `/realms/gl5`   |
+| Keycloak            | `gl5-keycloak-service`  | `8081` | `/realms/gl5`   |
 | API Gateway         | `gl5-api-gateway`       | `8072` | `/` (routes below) |
 | Config Server       | `gl5-config-server`     | `8071` | `/`             |
 | Eureka Server       | `gl5-eureka-server`     | `8761` | `/`             |
@@ -148,7 +148,8 @@ healthcheck because the official image removes `curl`; the frontend reports `(he
 | Student Service     | `gl5-student-service`   | `8085` | `/student`      |
 
 MySQL databases are also published on the host: course `3308`, department `3310`,
-enrollment `3307`, student `3309`.
+enrollment `3307`, student `3309`. Keycloak listens on `8080` **inside** the Compose network
+(`keycloak-service:8080`); Compose publishes it on host port `8081` (`KEYCLOAK_PORT`).
 
 The API Gateway is the recommended single entry point. It exposes each service under its
 own context path and resolves the backing instances through Eureka (`lb://<service-id>`):
@@ -164,7 +165,7 @@ own context path and resolves the backing instances through Eureka (`lb://<servi
 
 ```sh
 # Frontend (browser):               http://localhost:4200
-# Keycloak (browser):               http://localhost:8080  (admin / admin)
+# Keycloak (browser):               http://localhost:8081  (admin / admin)
 # Eureka dashboard (browser):       http://localhost:8761
 # Swagger UI (browser):             http://localhost:8072/swagger-ui.html
 # Service health (direct):          all return {"status":"UP"}
@@ -192,7 +193,7 @@ frontend. The gateway fetches the signing keys from
 ## Frontend and authentication
 
 - Frontend: `http://localhost:4200`
-- Keycloak: `http://localhost:8080`
+- Keycloak: `http://localhost:8081`
 - Local Keycloak administrator: `admin` / `admin`
 - Application user: `admin` / `admin` with the `ADMIN` role
 - Realm: `gl5`
@@ -206,7 +207,7 @@ the Keycloak container so the realm is imported again.
 The gateway uses these values from the root Compose file:
 
 ```yaml
-KEYCLOAK_ISSUER_URI: http://localhost:8080/realms/gl5
+KEYCLOAK_ISSUER_URI: http://localhost:8081/realms/gl5
 JWK_SET_URI: http://keycloak-service:8080/realms/gl5/protocol/openid-connect/certs
 ```
 
@@ -221,12 +222,23 @@ npm --prefix frontend-service run seed
 
 ### Example API calls
 
+Every gateway route under `/department`, `/course`, `/enrollment` and `/student` requires a
+bearer token. Get one with the demo client (`gl5-smoke`, configured with direct access grants
+in `frontend-service/keycloak/realm-gl5.json`):
+
+```sh
+TOKEN=$(curl -sS -X POST http://localhost:8081/realms/gl5/protocol/openid-connect/token \
+  -d 'client_id=gl5-smoke&grant_type=password&username=admin&password=admin&scope=openid' \
+  | jq -r '.access_token')
+AUTH="Authorization: Bearer $TOKEN"
+```
+
 ```sh
 # Through the API Gateway (single entry point)
-curl http://localhost:8072/department/api/departments
-curl http://localhost:8072/course/api/courses
-curl http://localhost:8072/student/students/getAllStudents
-curl http://localhost:8072/enrollment/Enrollment/getAllEnrollment
+curl -H "$AUTH" http://localhost:8072/department/api/departments
+curl -H "$AUTH" http://localhost:8072/course/api/courses
+curl -H "$AUTH" http://localhost:8072/student/students/getAllStudents
+curl -H "$AUTH" http://localhost:8072/enrollment/Enrollment/getAllEnrollment
 
 # Or directly against each service (same paths, different port)
 curl http://localhost:8082/department/api/departments
@@ -234,9 +246,9 @@ curl http://localhost:8084/course/api/courses
 curl http://localhost:8085/student/students/getAllStudents
 curl http://localhost:8083/enrollment/Enrollment/getAllEnrollment
 
-# Create a department
+# Create a department (through the gateway, so include the token)
 curl -X POST http://localhost:8072/department/api/departments \
-  -H "Content-Type: application/json" \
+  -H "$AUTH" -H "Content-Type: application/json" \
   -d '{"name":"Informatique","code":"INF"}'
 ```
 
@@ -272,6 +284,36 @@ Config Server copies of `api-gateway.properties` / `api-gateway-docker.propertie
 
 Infrastructure components (Eureka, Config Server, frontend) are not listed: they expose no
 application REST API. See [`api-gateway/README.md`](./api-gateway/README.md) for details.
+
+## RabbitMQ async demo (one event only)
+
+`enrollment-service` contains a **single** asynchronous integration flow, added only to demonstrate
+the pattern in `ARCHITECTURE-ROADMAP.md` §5. It is not involved in validation or CRUD: the HTTP
+response returns after the enrollment row is committed, with no wait for the broker.
+
+```
+POST /Enrollment/createEnrollment        (synchronous: returns the new enrollment id)
+  -> validate student/course
+  -> enrollment row + outbox row in the SAME database transaction
+  -> 201 Created
+
+outbox poller (every 2 s)
+  -> exchange "enrollment.events", routing key "enrollment.created"
+  -> queue "enrollment.audit"
+  -> idempotent consumer -> table "enrollment_audit_log"
+```
+
+- **Broker UI:** `http://localhost:15672` (`guest` / `guest`).
+- **See the result:** `GET http://localhost:8083/enrollment/Enrollment/audit`.
+- **Retry / dead letter:** a message that still fails after 3 attempts (exponential backoff) is
+  rejected without requeueing and routed through `enrollment.dlx` to `enrollment.dlq`. Check with
+  `docker exec gl5-rabbitmq rabbitmqctl list_queues name messages`.
+- **Opt out:** `ENROLLMENT_EVENTS_ENABLED=false`. It is `false` by default outside Docker; with
+  the flag off no queue is declared, no listener starts and no outbox row is written, so local
+  runs and tests need no broker.
+- Axon Server remains the internal event store/CQRS mechanism. RabbitMQ only carries the public
+  `EnrollmentCreatedIntegrationEvent`; the implementation lives in
+  `enrollment-service/src/main/java/tn/fst/studentmanagement/integration`.
 
 ## Reading configuration from the Config Server
 
@@ -397,8 +439,8 @@ cd course-service
 | Services return `401`/`Connection refused` to the Config Server | `CONFIG_USER`/`CONFIG_PASSWORD` must be identical in `config-server/.env` (they are reused by every service). |
 | A service is `unhealthy` but the app is running | Health checks use the context path (e.g. `/course/actuator/health`). Allow the ~60 s start-up grace period before investigating. |
 | Requests to `http://localhost:8072/<service>/...` return `503 Service Unavailable` | The gateway could not resolve a healthy instance. Wait ~30 s after start-up (Eureka registration interval) or check the target service in the Eureka dashboard. |
-| Frontend login fails or the gateway returns `401` for a valid token | Make sure `KEYCLOAK_ISSUER_URI` is `http://localhost:8080/realms/gl5` and the token was issued through `localhost`, not `127.0.0.1`. |
-| Gateway logs show a JWKS connection error | `JWK_SET_URI` must use `http://keycloak-service:8080/...` from inside `gl5-net`, not `localhost:8080`. |
+| Frontend login fails or the gateway returns `401` for a valid token | Make sure `KEYCLOAK_ISSUER_URI` is `http://localhost:8081/realms/gl5` and the token was issued through `localhost`, not `127.0.0.1`. |
+| Gateway logs show a JWKS connection error | `JWK_SET_URI` must use `http://keycloak-service:8080/...` from inside `gl5-net`, not `localhost:8081`. |
 | Two `Access-Control-Allow-Origin` headers appear | A backend `@CrossOrigin` annotation was reintroduced or an extra CORS filter was added. The gateway must be the only CORS source. |
 | Keycloak theme missing after a change | Recreate `keycloak-service`; theme files are mounted read-only and loaded at startup. |
 | Build fails for a service | Make sure you used `docker compose up -d --build` (never pass `--no-build`); all services build from source. |

@@ -9,10 +9,14 @@ import org.springframework.web.bind.annotation.*;
 import tn.fst.studentmanagement.axon.projection.AxonEnrollmentView;
 import tn.fst.studentmanagement.axon.query.FindAllAxonEnrollmentsQuery;
 import tn.fst.studentmanagement.axon.query.FindAxonEnrollmentQuery;
+import tn.fst.studentmanagement.integration.AuditEntry;
+import tn.fst.studentmanagement.integration.AuditEntryRepository;
+import tn.fst.studentmanagement.exceptions.EnrollmentNotFoundException;
 import tn.fst.studentmanagement.query.EnrollmentQueryService;
 import tn.fst.studentmanagement.query.EnrollmentResponse;
 
 import java.util.List;
+import java.util.concurrent.CompletionException;
 
 /** Read endpoints only (GET). */
 @RestController
@@ -23,11 +27,14 @@ public class EnrollmentQueryController {
 
     private final EnrollmentQueryService queryService;
     private final QueryGateway queryGateway;
+    private final AuditEntryRepository auditEntryRepository;
 
     public EnrollmentQueryController(EnrollmentQueryService queryService,
-                                     QueryGateway queryGateway) {
+                                     QueryGateway queryGateway,
+                                     AuditEntryRepository auditEntryRepository) {
         this.queryService = queryService;
         this.queryGateway = queryGateway;
+        this.auditEntryRepository = auditEntryRepository;
     }
 
     @Operation(summary = "List all enrollments")
@@ -70,6 +77,27 @@ public class EnrollmentQueryController {
     @GetMapping("/axon/{id}")
     public AxonEnrollmentView getAxonEnrollment(
             @Parameter(description = "Axon aggregate id") @PathVariable String id) {
-        return queryGateway.query(new FindAxonEnrollmentQuery(id), AxonEnrollmentView.class).join();
+        try {
+            return queryGateway.query(new FindAxonEnrollmentQuery(id), AxonEnrollmentView.class).join();
+        } catch (CompletionException exception) {
+            // Axon wraps a not-found query handler exception; map it to the same
+            // 404 ProblemDetail used by the JPA read endpoints.
+            Throwable root = exception;
+            while (root.getCause() != null) {
+                root = root.getCause();
+            }
+            if (root.getMessage() != null && root.getMessage().contains("not found")) {
+                throw new EnrollmentNotFoundException(root.getMessage());
+            }
+            throw exception;
+        }
+    }
+
+    @Operation(summary = "List audit entries delivered through RabbitMQ (demo)",
+            description = "Eventually consistent: a row appears after the outbox publisher and "
+                    + "the audit consumer have run. Returns an empty list when the async flow is disabled.")
+    @GetMapping("/audit")
+    public List<AuditEntry> getAuditEntries() {
+        return auditEntryRepository.findAll();
     }
 }

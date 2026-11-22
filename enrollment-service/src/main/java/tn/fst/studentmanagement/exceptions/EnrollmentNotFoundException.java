@@ -5,4 +5,8 @@ public class EnrollmentNotFoundException extends RuntimeException {
     public EnrollmentNotFoundException(Long idEnrollment) {
         super("Enrollment with ID " + idEnrollment + " was not found");
     }
+
+    public EnrollmentNotFoundException(String message) {
+        super(message);
+    }
 }

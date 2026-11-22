@@ -294,8 +294,8 @@ system is resilient merely because it survives one manual request.
 - [ ] Add correlation IDs and structured business-event logging.
 - [ ] Add Flyway or Liquibase migrations.
 - [ ] Add dependency and Docker image vulnerability scans.
-- [ ] Add RabbitMQ for one asynchronous workflow.
-- [ ] Add an outbox and idempotent consumer for that workflow.
+- [x] Add RabbitMQ for one asynchronous workflow (enrollment created → audit, in `enrollment-service`).
+- [x] Add an outbox and idempotent consumer for that workflow.
 - [ ] Add a deployment target: Kubernetes, Terraform-backed environment, or VM.
 
 ### Stretch goals
