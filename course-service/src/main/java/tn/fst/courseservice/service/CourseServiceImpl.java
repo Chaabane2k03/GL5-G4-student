@@ -16,6 +16,7 @@ import tn.fst.courseservice.repository.CourseRepository;
 import feign.FeignException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.Page;
@@ -43,16 +44,27 @@ public class CourseServiceImpl implements CourseService {
 
     private final CourseRepository courseRepository;
     private final CourseMapper courseMapper;
-    private final DepartmentClient departmentClient;
+    private final DepartmentLookupService departmentLookupService;
     private final String departmentValidation;
 
+    @Autowired
     public CourseServiceImpl(CourseRepository courseRepository, CourseMapper courseMapper,
-                             DepartmentClient departmentClient,
+                             DepartmentLookupService departmentLookupService,
                              @Value("${app.department.validation:strict}") String departmentValidation) {
         this.courseRepository = courseRepository;
         this.courseMapper = courseMapper;
-        this.departmentClient = departmentClient;
+        this.departmentLookupService = departmentLookupService;
         this.departmentValidation = departmentValidation;
+    }
+
+    /**
+     * Keeps the service easy to unit-test without requiring a Spring proxy. Production
+     * wiring uses the resilient lookup bean above.
+     */
+    CourseServiceImpl(CourseRepository courseRepository, CourseMapper courseMapper,
+                      DepartmentClient departmentClient, String departmentValidation) {
+        this(courseRepository, courseMapper, new DepartmentLookupService(departmentClient),
+                departmentValidation);
     }
 
     @Override
@@ -164,7 +176,7 @@ public class CourseServiceImpl implements CourseService {
             return;
         }
         try {
-            departmentClient.getDepartment(departmentId);
+            departmentLookupService.getDepartment(departmentId);
         } catch (FeignException.NotFound ex) {
             throw new DepartmentNotFoundException(departmentId);
         } catch (FeignException ex) {

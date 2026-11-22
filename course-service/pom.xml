@@ -56,6 +56,11 @@
 
     <dependencies>
         <dependency>
+            <groupId>org.axonframework</groupId>
+            <artifactId>axon-spring-boot-starter</artifactId>
+            <version>4.11.3</version>
+        </dependency>
+        <dependency>
             <groupId>org.springframework.cloud</groupId>
             <artifactId>spring-cloud-starter-netflix-eureka-client</artifactId>
         </dependency>
@@ -66,6 +71,10 @@
         <dependency>
             <groupId>org.springframework.cloud</groupId>
             <artifactId>spring-cloud-starter-openfeign</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>io.github.resilience4j</groupId>
+            <artifactId>resilience4j-spring-boot3</artifactId>
         </dependency>
         <dependency>
             <!-- Instruments every Feign call: creates a CLIENT span and propagates the

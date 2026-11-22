@@ -946,6 +946,7 @@ void sendGridMail(String subject, String htmlBody) {
             writeFile file: '.sendgrid-mail-body.html', text: htmlBody
             withEnv([
                 "MAIL_FROM=${from}",
+                "MAIL_FROM_NAME=${env.SENDGRID_FROM_NAME?.trim() ?: 'Jenkins'}",
                 "MAIL_TO=${to}",
                 "MAIL_SUBJECT=${subject}"
             ]) {
@@ -954,14 +955,29 @@ void sendGridMail(String subject, String htmlBody) {
                     set +x
                     trap 'rm -f .sendgrid-mail-body.html .sendgrid-mail-payload.json .sendgrid-mail-response.json' EXIT
 
+                    # Accept either "address@domain" or "Display Name <address@domain>".
+                    FROM_ADDR="$MAIL_FROM"
+                    FROM_NAME="$MAIL_FROM_NAME"
+                    case "$MAIL_FROM" in
+                      *"<"*">"*)
+                        FROM_NAME="${MAIL_FROM%%<*}"
+                        FROM_NAME="${FROM_NAME%"${FROM_NAME##*[! ]}"}"
+                        FROM_ADDR="${MAIL_FROM#*<}"
+                        FROM_ADDR="${FROM_ADDR%%>*}"
+                        ;;
+                    esac
+
+                    [ -n "$FROM_NAME" ] || FROM_NAME=Jenkins
+
                     jq -n \\
-                      --arg from "$MAIL_FROM" \\
+                      --arg from "$FROM_ADDR" \\
+                      --arg fromName "$FROM_NAME" \\
                       --arg to "$MAIL_TO" \\
                       --arg subject "$MAIL_SUBJECT" \\
                       --rawfile html .sendgrid-mail-body.html \\
                       '{
                          personalizations: [{ to: [{ email: $to }] }],
-                         from: { email: $from },
+                         from: { email: $from, name: $fromName },
                          subject: $subject,
                          content: [{ type: "text/html", value: $html }]
                        }' > .sendgrid-mail-payload.json

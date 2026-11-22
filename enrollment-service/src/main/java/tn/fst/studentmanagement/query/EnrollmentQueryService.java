@@ -1,6 +1,5 @@
 package tn.fst.studentmanagement.query;
 
-import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import tn.fst.studentmanagement.exceptions.EnrollmentNotFoundException;
@@ -13,11 +12,14 @@ import java.util.List;
  * and entities are never exposed: everything is mapped to {@link EnrollmentResponse}.
  */
 @Service
-@RequiredArgsConstructor
 @Transactional(readOnly = true)
 public class EnrollmentQueryService {
 
     private final EnrollmentRepository enrollmentRepository;
+
+    public EnrollmentQueryService(EnrollmentRepository enrollmentRepository) {
+        this.enrollmentRepository = enrollmentRepository;
+    }
 
     public List<EnrollmentResponse> getAll() {
         return enrollmentRepository.findAll().stream()

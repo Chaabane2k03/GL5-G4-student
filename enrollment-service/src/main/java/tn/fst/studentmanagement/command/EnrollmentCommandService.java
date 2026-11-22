@@ -1,7 +1,6 @@
 package tn.fst.studentmanagement.command;
 
 import feign.FeignException;
-import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import tn.fst.studentmanagement.clients.CourseClient;
@@ -18,13 +17,19 @@ import tn.fst.studentmanagement.repositories.EnrollmentRepository;
  * Reads live in {@code EnrollmentQueryService}.
  */
 @Service
-@RequiredArgsConstructor
 @Transactional
 public class EnrollmentCommandService {
 
     private final EnrollmentRepository enrollmentRepository;
     private final StudentClient studentClient;
     private final CourseClient courseClient;
+
+    public EnrollmentCommandService(EnrollmentRepository enrollmentRepository,
+                                    StudentClient studentClient, CourseClient courseClient) {
+        this.enrollmentRepository = enrollmentRepository;
+        this.studentClient = studentClient;
+        this.courseClient = courseClient;
+    }
 
     public Long create(CreateEnrollmentCommand command) {
         validateReferences(command.studentId(), command.courseId());

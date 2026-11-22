@@ -24,8 +24,10 @@ services:
       NEXUS_USER: ${NEXUS_USER:-admin}
       NEXUS_PASSWORD: ${NEXUS_PASSWORD:-}
       # Sender for the SendGrid notification (System Admin e-mail address).
-      # The API key itself is the Jenkins credential `mail-api`, not an env var.
+      # SENDGRID_API_KEY is imported by CasC as the Jenkins credential `mail-api`.
       SENDGRID_FROM: ${SENDGRID_FROM:-chaabaneboussadia@gmail.com}
+      SENDGRID_FROM_NAME: ${SENDGRID_FROM_NAME:-Jenkins}
+      SENDGRID_API_KEY: ${SENDGRID_API_KEY:-}
       # AWS / Terraform deployment (Jenkinsfile stage "Deploy to AWS").
       # Learner Lab credentials are temporary: refresh them, then recreate Jenkins.
       AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}

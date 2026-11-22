@@ -55,6 +55,12 @@ credentials:
               username: "${GITHUB_USER:-Chaabane2k03}"
               password: "${GITHUB_TOKEN:-}"
               description: "GitHub personal access token (GITHUB_TOKEN)"
+          # SendGrid API key used by the notification step (Jenkinsfile sendGridMail).
+          - string:
+              scope: GLOBAL
+              id: "mail-api"
+              secret: "${SENDGRID_API_KEY:-}"
+              description: "SendGrid API key (SENDGRID_API_KEY)"
 
 unclassified:
   location:

@@ -67,6 +67,22 @@ services:
       - gl5-net
     restart: unless-stopped
 
+  # ----------------------------------------------------------- axon server ---
+  axon-server:
+    image: axoniq/axonserver:4.6.11-jdk-17-dev
+    container_name: gl5-axon-server
+    hostname: axon-server
+    environment:
+      AXONIQ_AXONSERVER_DEVMODE_ENABLED: "true"
+      AXONIQ_AXONSERVER_HOSTNAME: axon-server
+      AXONIQ_AXONSERVER_INTERNAL_HOSTNAME: axon-server
+    ports:
+      - "8024:8024"
+      - "8124:8124"
+    networks:
+      - gl5-net
+    restart: unless-stopped
+
   # ------------------------------------------------------------- course ------
   course-db:
     image: mysql:8.0
@@ -116,6 +132,12 @@ services:
       SPRING_PROFILES_ACTIVE: docker
       CONFIG_SERVER_URL: http://config-server:8071
       EUREKA_URL: http://eureka-server:8761/eureka/
+      AXON_AXONSERVER_SERVERS: axon-server:8124
+      SPRING_AXON_AXONSERVER_SERVERS: axon-server:8124
+      SPRING_JPA_HIBERNATE_DDL_AUTO: update
+      AXON_SERIALIZER_GENERAL: jackson
+      AXON_SERIALIZER_EVENTS: jackson
+      AXON_SERIALIZER_MESSAGES: jackson
       OTEL_EXPORTER_OTLP_ENDPOINT: http://host.docker.internal:4318/v1/traces
     ports:
       - "8084:8084"
@@ -125,7 +147,7 @@ services:
 
   # ----------------------------------------------------------- department ----
   department-db:
-    image: mysql:8.4
+    image: mysql:8.0
     container_name: gl5-department-db
     environment:
       MYSQL_DATABASE: departmentdb
@@ -170,6 +192,11 @@ services:
       SPRING_PROFILES_ACTIVE: docker
       CONFIG_SERVER_URL: http://config-server:8071
       EUREKA_URL: http://eureka-server:8761/eureka/
+      AXON_AXONSERVER_SERVERS: axon-server:8124
+      SPRING_AXON_AXONSERVER_SERVERS: axon-server:8124
+      AXON_SERIALIZER_GENERAL: jackson
+      AXON_SERIALIZER_EVENTS: jackson
+      AXON_SERIALIZER_MESSAGES: jackson
       OTEL_EXPORTER_OTLP_ENDPOINT: http://host.docker.internal:4318/v1/traces
     ports:
       - "8082:8082"
@@ -185,7 +212,7 @@ services:
 
   # ----------------------------------------------------------- enrollment ----
   enrollment-db:
-    image: mysql:8
+    image: mysql:8.0
     container_name: gl5-enrollment-db
     environment:
       MYSQL_ROOT_PASSWORD: root
@@ -219,6 +246,8 @@ services:
         condition: service_healthy
       eureka-server:
         condition: service_started
+      axon-server:
+        condition: service_started
     env_file:
       - path: ./config-server/.env
         format: raw
@@ -226,6 +255,9 @@ services:
       SPRING_PROFILES_ACTIVE: docker
       CONFIG_SERVER_URL: http://config-server:8071
       EUREKA_URL: http://eureka-server:8761/eureka/
+      AXON_SERVER_URL: axon-server:8124
+      SPRING_AXON_AXONSERVER_SERVERS: axon-server:8124
+      AXON_AXONSERVER_SERVERS: axon-server:8124
       OTEL_EXPORTER_OTLP_ENDPOINT: http://host.docker.internal:4318/v1/traces
     ports:
       - "8083:8083"
@@ -241,7 +273,7 @@ services:
 
   # -------------------------------------------------------------- student ----
   student-db:
-    image: mysql:8.4
+    image: mysql:8.0
     container_name: gl5-student-db
     environment:
       MYSQL_DATABASE: studentdb
@@ -286,6 +318,11 @@ services:
       SPRING_PROFILES_ACTIVE: docker
       CONFIG_SERVER_URL: http://config-server:8071
       EUREKA_URL: http://eureka-server:8761/eureka/
+      AXON_AXONSERVER_SERVERS: axon-server:8124
+      SPRING_AXON_AXONSERVER_SERVERS: axon-server:8124
+      AXON_SERIALIZER_GENERAL: jackson
+      AXON_SERIALIZER_EVENTS: jackson
+      AXON_SERIALIZER_MESSAGES: jackson
       OTEL_EXPORTER_OTLP_ENDPOINT: http://host.docker.internal:4318/v1/traces
     ports:
       - "8085:8085"
