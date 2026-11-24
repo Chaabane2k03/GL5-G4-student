@@ -22,6 +22,11 @@ build/
 logs/
 *.log
 
+# Local Sonar scanner artifacts
+.sonar/
+.sonar-logs/
+.scannerwork/
+
 # IDEs
 .idea/
 *.iml

@@ -1,5 +1,6 @@
 package tn.fst.studentmanagement.command;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import feign.FeignException;
 import org.junit.jupiter.api.BeforeEach;
@@ -17,6 +18,7 @@ import tn.fst.studentmanagement.entities.Status;
 import tn.fst.studentmanagement.exceptions.CourseNotFoundException;
 import tn.fst.studentmanagement.exceptions.EnrollmentNotFoundException;
 import tn.fst.studentmanagement.exceptions.StudentNotFoundException;
+import tn.fst.studentmanagement.integration.OutboxEvent;
 import tn.fst.studentmanagement.integration.OutboxEventRepository;
 import tn.fst.studentmanagement.repositories.EnrollmentRepository;
 
@@ -168,5 +170,43 @@ class EnrollmentCommandServiceTest {
                 .isInstanceOf(EnrollmentNotFoundException.class);
 
         verify(enrollmentRepository, never()).deleteById(anyLong());
+    }
+
+    @Test
+    void outboxEventToleratesNullDateAndStatus() {
+        OutboxEventRepository outbox = mock(OutboxEventRepository.class);
+        when(enrollmentRepository.save(any(Enrollment.class))).thenAnswer(invocation -> {
+            Enrollment saved = invocation.getArgument(0);
+            saved.setIdEnrollment(11L);
+            return saved;
+        });
+        EnrollmentCommandService service = new EnrollmentCommandService(
+                enrollmentRepository, studentClient, courseClient, outbox, new ObjectMapper(), true);
+        CreateEnrollmentCommand command = new CreateEnrollmentCommand(null, null, null, null, null);
+
+        assertThat(service.create(command)).isEqualTo(11L);
+
+        ArgumentCaptor<OutboxEvent> captor = ArgumentCaptor.forClass(OutboxEvent.class);
+        verify(outbox).save(captor.capture());
+        assertThat(captor.getValue().getPayload()).contains("\"enrollmentId\":\"11\"");
+    }
+
+    @Test
+    void outboxSerializationFailureIsReportedClearly() throws Exception {
+        OutboxEventRepository outbox = mock(OutboxEventRepository.class);
+        ObjectMapper brokenMapper = mock(ObjectMapper.class);
+        when(brokenMapper.writeValueAsString(any())).thenThrow(new JsonProcessingException("broken") {
+        });
+        when(enrollmentRepository.save(any(Enrollment.class))).thenAnswer(invocation -> {
+            Enrollment saved = invocation.getArgument(0);
+            saved.setIdEnrollment(12L);
+            return saved;
+        });
+        EnrollmentCommandService service = new EnrollmentCommandService(
+                enrollmentRepository, studentClient, courseClient, outbox, brokenMapper, true);
+
+        assertThatThrownBy(() -> service.create(createCommand(null, null)))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("Cannot serialize enrollment.created event");
     }
 }

@@ -1,10 +1,14 @@
 package tn.fst.studentmanagement.controllers;
 
+import org.axonframework.commandhandling.gateway.CommandGateway;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import tn.fst.studentmanagement.axon.command.CreateAxonEnrollmentCommand;
+import tn.fst.studentmanagement.axon.command.DeleteAxonEnrollmentCommand;
+import tn.fst.studentmanagement.axon.command.UpdateAxonEnrollmentCommand;
 import tn.fst.studentmanagement.command.CreateEnrollmentCommand;
 import tn.fst.studentmanagement.command.EnrollmentCommandService;
 import tn.fst.studentmanagement.command.UpdateEnrollmentCommand;
@@ -21,6 +25,9 @@ class EnrollmentCommandControllerTest {
 
     @Mock
     private EnrollmentCommandService commandService;
+
+    @Mock
+    private CommandGateway commandGateway;
 
     @InjectMocks
     private EnrollmentCommandController controller;
@@ -52,5 +59,33 @@ class EnrollmentCommandControllerTest {
         controller.deleteEnrollment(42L);
 
         verify(commandService).delete(42L);
+    }
+
+    @Test
+    void createWithAxon_dispatchesCommandAndReturnsAggregateId() {
+        CreateAxonEnrollmentCommand command = new CreateAxonEnrollmentCommand(
+                "e-1", LocalDate.of(2026, 11, 22), 12.5, Status.ACTIVE, 1L, 2L);
+
+        assertThat(controller.createWithAxon(command)).isEqualTo("e-1");
+
+        verify(commandGateway).sendAndWait(command);
+    }
+
+    @Test
+    void updateWithAxon_usesThePathIdAsAggregateIdentifier() {
+        UpdateAxonEnrollmentCommand body = new UpdateAxonEnrollmentCommand(
+                "ignored", LocalDate.of(2026, 11, 22), 15.0, Status.COMPLETED, 1L, 2L);
+
+        controller.updateWithAxon("e-1", body);
+
+        verify(commandGateway).sendAndWait(new UpdateAxonEnrollmentCommand(
+                "e-1", LocalDate.of(2026, 11, 22), 15.0, Status.COMPLETED, 1L, 2L));
+    }
+
+    @Test
+    void deleteWithAxon_dispatchesDeleteCommand() {
+        controller.deleteWithAxon("e-1");
+
+        verify(commandGateway).sendAndWait(new DeleteAxonEnrollmentCommand("e-1"));
     }
 }

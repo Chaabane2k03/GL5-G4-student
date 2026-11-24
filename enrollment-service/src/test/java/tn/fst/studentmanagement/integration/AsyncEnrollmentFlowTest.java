@@ -4,7 +4,9 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import org.springframework.amqp.core.Message;
 import org.springframework.amqp.core.MessagePostProcessor;
+import org.springframework.amqp.core.MessageProperties;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.data.domain.Pageable;
 import tn.fst.studentmanagement.clients.CourseClient;
@@ -90,10 +92,18 @@ class AsyncEnrollmentFlowTest {
 
         new OutboxPublisher(outbox, template).publishPending();
 
+        ArgumentCaptor<MessagePostProcessor> headers = ArgumentCaptor.forClass(MessagePostProcessor.class);
         verify(template).convertAndSend(eq("enrollment.events"), eq("enrollment.created"),
-                eq("{}"), any(MessagePostProcessor.class));
+                eq("{}"), headers.capture());
         assertThat(row.getPublishedAt()).isNotNull();
         verify(outbox).save(row);
+
+        Message message = mock(Message.class);
+        MessageProperties properties = mock(MessageProperties.class);
+        when(message.getMessageProperties()).thenReturn(properties);
+        assertThat(headers.getValue().postProcessMessage(message)).isSameAs(message);
+        verify(properties).setContentType("application/json");
+        verify(properties).setHeader("eventId", "evt-1");
     }
 
     @Test
