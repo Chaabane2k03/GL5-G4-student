@@ -5,6 +5,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.webtestclient.autoconfigure.AutoConfigureWebTestClient;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
@@ -49,6 +50,7 @@ import static org.assertj.core.api.Assertions.assertThat;
                 // about.
                 "spring.cloud.gateway.server.webflux.routes[0].filters[0].args.statuses=SERVICE_UNAVAILABLE",
                 "spring.cloud.gateway.server.webflux.routes[0].filters[0].args.methods=GET"})
+@AutoConfigureWebTestClient
 @ActiveProfiles("resiliency-test")
 class LoadBalancerRetryIntegrationTest {
 

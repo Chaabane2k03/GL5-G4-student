@@ -24,7 +24,7 @@
         <nexus.snapshot.repo>gl5-student-snapshots</nexus.snapshot.repo>
         <springdoc.version>3.2.1</springdoc.version>
         <!-- Testcontainers 2.x renamed its modules; keep the 1.x API used by the tests. -->
-        <testcontainers.version>1.21.3</testcontainers.version>
+        <testcontainers.version>1.21.4</testcontainers.version>
 
         <!-- Coverage thresholds enforced by the JaCoCo check. Overridable, e.g. -Djacoco.line.min=0.95 -->
         <jacoco.line.min>0.90</jacoco.line.min>
@@ -95,7 +95,7 @@
         </dependency>
         <dependency>
             <groupId>io.github.resilience4j</groupId>
-            <artifactId>resilience4j-spring-boot3</artifactId>
+            <artifactId>resilience4j-spring-boot4</artifactId>
         </dependency>
         <dependency>
             <!-- Instruments every Feign call: creates a CLIENT span and propagates the
@@ -155,6 +155,12 @@
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-webmvc-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <!-- TestRestTemplate's Boot 4 auto-configuration needs RestTemplateBuilder. -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-restclient</artifactId>
             <scope>test</scope>
         </dependency>
         <dependency>

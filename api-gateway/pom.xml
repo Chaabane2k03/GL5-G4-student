@@ -108,10 +108,12 @@
         <!-- The circuit breaker starter above only ships resilience4j-circuitbreaker and
              resilience4j-timelimiter. This module owns the "resilience4j.*" property
              namespace, so without it every resilience4j.* setting in application.properties
-             is silently ignored and the breaker falls back to library defaults. -->
+             is silently ignored and the breaker falls back to library defaults.
+             Boot 4 needs the spring-boot4 artifact; keeping spring-boot3 registers the
+             same beans twice and fails startup. -->
         <dependency>
             <groupId>io.github.resilience4j</groupId>
-            <artifactId>resilience4j-spring-boot3</artifactId>
+            <artifactId>resilience4j-spring-boot4</artifactId>
         </dependency>
         <!-- Rate limiter. RedisRateLimiter would need a Redis container, which this stack
              does not have, so the limiter is Bucket4j backed by an in-memory Caffeine cache

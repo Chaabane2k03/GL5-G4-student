@@ -13,7 +13,7 @@ FROM eclipse-temurin:17-jre-alpine
 WORKDIR /app
 
 # Patch the only known zlib CVE in the Alpine runtime.
-RUN apk add --no-cache "zlib=1.4-r0"
+RUN apk add --no-cache curl "zlib=1.4-r0"
 
 RUN addgroup -S -g 10001 appuser && adduser -S -u 10001 -G appuser appuser
 

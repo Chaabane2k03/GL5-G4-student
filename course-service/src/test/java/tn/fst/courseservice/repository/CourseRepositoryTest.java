@@ -139,7 +139,7 @@ class CourseRepositoryTest {
         courseRepository.saveAndFlush(newCourse("CS101", 6, 1L, CourseStatus.ACTIVE));
         courseRepository.saveAndFlush(newCourse("CS102", 6, 2L, CourseStatus.ARCHIVED));
 
-        List<Course> all = courseRepository.findAll(Specification.allOf(null, null));
+        List<Course> all = courseRepository.findAll(Specification.allOf());
 
         assertThat(all).hasSize(2);
     }
@@ -152,7 +152,7 @@ class CourseRepositoryTest {
         courseRepository.flush();
 
         Page<Course> firstPage = courseRepository.findAll(
-                Specification.allOf(null, null),
+                Specification.allOf(),
                 PageRequest.of(0, 2, Sort.by(Sort.Direction.ASC, "code")));
 
         assertThat(firstPage.getTotalElements()).isEqualTo(3);
@@ -160,7 +160,7 @@ class CourseRepositoryTest {
         assertThat(firstPage.getContent()).extracting(Course::getCode).containsExactly("CS101", "MA101");
 
         Page<Course> secondPage = courseRepository.findAll(
-                Specification.allOf(null, null),
+                Specification.allOf(),
                 PageRequest.of(1, 2, Sort.by(Sort.Direction.ASC, "code")));
         assertThat(secondPage.getContent()).extracting(Course::getCode).containsExactly("PH101");
     }

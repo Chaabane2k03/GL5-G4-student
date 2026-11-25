@@ -15,7 +15,7 @@ FROM eclipse-temurin:17-jre-alpine
 WORKDIR /app
 
 # Patch the only known zlib CVE in the Alpine runtime.
-RUN apk add --no-cache "zlib=1.4-r0"
+RUN apk add --no-cache curl "zlib=1.4-r0"
 COPY --from=build /app/target/config-server-0.0.1-SNAPSHOT.jar /app/config-server.jar
 
 RUN addgroup -S config && adduser -S -G config config \

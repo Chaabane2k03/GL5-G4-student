@@ -124,6 +124,7 @@ import static org.assertj.core.api.Assertions.assertThat;
                 "spring.cloud.gateway.server.webflux.routes[4].id=bulkhead-route",
                 "spring.cloud.gateway.server.webflux.routes[4].uri=lb://resiliency-bulkhead-backend",
                 "spring.cloud.gateway.server.webflux.routes[4].predicates[0]=Path=/bulkheaded/**"})
+@AutoConfigureWebTestClient
 @ActiveProfiles("resiliency-test")
 class GatewayResiliencyIntegrationTest {
 
