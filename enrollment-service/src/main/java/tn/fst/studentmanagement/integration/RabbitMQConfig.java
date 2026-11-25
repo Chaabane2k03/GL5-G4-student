@@ -5,10 +5,14 @@ import org.springframework.amqp.core.BindingBuilder;
 import org.springframework.amqp.core.Queue;
 import org.springframework.amqp.core.QueueBuilder;
 import org.springframework.amqp.core.TopicExchange;
+import org.springframework.amqp.rabbit.annotation.EnableRabbit;
 import org.springframework.amqp.rabbit.config.RetryInterceptorBuilder;
-import org.springframework.amqp.rabbit.connection.ConnectionFactory;
 import org.springframework.amqp.rabbit.config.SimpleRabbitListenerContainerFactory;
+import org.springframework.amqp.rabbit.connection.CachingConnectionFactory;
+import org.springframework.amqp.rabbit.connection.ConnectionFactory;
+import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.amqp.rabbit.retry.RejectAndDontRequeueRecoverer;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -29,6 +33,7 @@ import org.springframework.context.annotation.Configuration;
  * broker. Only docker-compose enables the flow.
  */
 @Configuration
+@EnableRabbit
 @ConditionalOnProperty(name = "enrollment.events.enabled", havingValue = "true")
 public class RabbitMQConfig {
 
@@ -38,6 +43,26 @@ public class RabbitMQConfig {
     public static final String DLX = "enrollment.dlx";
     public static final String DLQ = "enrollment.dlq";
     public static final String DLQ_ROUTING_KEY = "enrollment.audit.failed";
+
+    /* Boot 4 no longer auto-configures spring-rabbit, so wire the classic client explicitly. */
+    @Bean
+    ConnectionFactory rabbitConnectionFactory(
+            @Value("${spring.rabbitmq.host:localhost}") String host,
+            @Value("${spring.rabbitmq.port:5672}") int port,
+            @Value("${spring.rabbitmq.username:guest}") String username,
+            @Value("${spring.rabbitmq.password:guest}") String password,
+            @Value("${spring.rabbitmq.virtual-host:/}") String virtualHost) {
+        CachingConnectionFactory factory = new CachingConnectionFactory(host, port);
+        factory.setUsername(username);
+        factory.setPassword(password);
+        factory.setVirtualHost(virtualHost);
+        return factory;
+    }
+
+    @Bean
+    RabbitTemplate rabbitTemplate(ConnectionFactory connectionFactory) {
+        return new RabbitTemplate(connectionFactory);
+    }
 
     @Bean
     TopicExchange enrollmentEventsExchange() {
@@ -85,7 +110,7 @@ public class RabbitMQConfig {
         SimpleRabbitListenerContainerFactory factory = new SimpleRabbitListenerContainerFactory();
         factory.setConnectionFactory(connectionFactory);
         factory.setAdviceChain(RetryInterceptorBuilder.stateless()
-                .maxAttempts(3)
+                .maxRetries(2) // initial delivery + 2 retries = 3 attempts
                 .backOffOptions(1_000, 2.0, 5_000)
                 .recoverer(new RejectAndDontRequeueRecoverer())
                 .build());

@@ -5,7 +5,7 @@
     <parent>
         <groupId>org.springframework.boot</groupId>
         <artifactId>spring-boot-starter-parent</artifactId>
-        <version>3.5.5</version>
+        <version>4.2.0</version>
         <relativePath/>
     </parent>
     <groupId>tn.fst</groupId>
@@ -15,7 +15,7 @@
     <description>Enrollment microservice</description>
     <properties>
         <java.version>17</java.version>
-        <spring-cloud.version>2025.0.3</spring-cloud.version>
+        <spring-cloud.version>2026.0.0</spring-cloud.version>
         <sonar.projectKey>enrollment-service</sonar.projectKey>
         <nexus.url>http://host.docker.internal:8081</nexus.url>
         <nexus.release.repo>gl5-student-releases</nexus.release.repo>
@@ -24,6 +24,17 @@
     </properties>
     <dependencyManagement>
         <dependencies>
+            <!-- Security overrides for libraries not managed by the Spring Boot BOM. -->
+            <dependency>
+                <groupId>com.google.guava</groupId>
+                <artifactId>guava</artifactId>
+                <version>33.7.2-android</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.httpcomponents</groupId>
+                <artifactId>httpclient</artifactId>
+                <version>4.5.14</version>
+            </dependency>
             <dependency>
                 <groupId>org.springframework.cloud</groupId>
                 <artifactId>spring-cloud-dependencies</artifactId>
@@ -37,7 +48,7 @@
         <dependency>
             <groupId>org.axonframework</groupId>
             <artifactId>axon-spring-boot-starter</artifactId>
-            <version>4.11.3</version>
+            <version>4.13.2</version>
         </dependency>
         <dependency>
             <groupId>org.springframework.cloud</groupId>
@@ -65,10 +76,24 @@
             <artifactId>spring-boot-starter-data-jpa</artifactId>
         </dependency>
         <!-- Demo async flow only (EnrollmentCreated -> RabbitMQ -> audit consumer).
-             Axon remains the internal event store; RabbitMQ is not on the critical path. -->
+             Axon remains the internal event store; RabbitMQ is not on the critical path.
+             Boot 4's starter defaults to the new AMQP 1.0 client; exclude it and use the
+             maintained spring-rabbit 4.x line so the existing topic-exchange topology
+             keeps working with RabbitMQ 3.13. -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-amqp</artifactId>
+            <exclusions>
+                <exclusion>
+                    <groupId>org.springframework.boot</groupId>
+                    <artifactId>spring-boot-amqp</artifactId>
+                </exclusion>
+            </exclusions>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.amqp</groupId>
+            <artifactId>spring-rabbit</artifactId>
+            <version>4.2.0</version>
         </dependency>
         <dependency>
             <groupId>org.springframework.boot</groupId>
@@ -105,7 +130,7 @@
         <dependency>
             <groupId>org.springdoc</groupId>
             <artifactId>springdoc-openapi-starter-webmvc-ui</artifactId>
-            <version>2.8.9</version>
+            <version>3.2.1</version>
         </dependency>
         <dependency>
             <groupId>com.h2database</groupId>

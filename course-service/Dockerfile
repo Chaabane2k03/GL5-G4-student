@@ -15,6 +15,9 @@ RUN mvn -B -q clean package -DskipTests -Dmaven.artifact.threads=1
 FROM ${JRE_IMAGE}
 WORKDIR /app
 
+# Patch the only known zlib CVE in the Alpine runtime.
+RUN apk add --no-cache "zlib=1.4-r0"
+
 # Runtime configuration (overridable via --build-arg). Defaults preserve prior behaviour.
 ARG SERVER_PORT=8084
 ARG APP_USER=app

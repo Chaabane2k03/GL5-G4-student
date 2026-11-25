@@ -12,7 +12,10 @@ COPY . .
 RUN npm run build
 
 # -------------------------------------------------------------- runtime stage --
-FROM nginx:1.29-alpine
+FROM nginx:1.31.10-alpine3.24
+
+# Patch the only known zlib CVE in the Alpine runtime.
+RUN apk add --no-cache "zlib=1.4-r0"
 
 # nginx:alpine renders every /etc/nginx/templates/*.template file with envsubst
 # into NGINX_ENVSUBST_OUTPUT_DIR at container start.

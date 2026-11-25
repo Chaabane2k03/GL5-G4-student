@@ -11,11 +11,14 @@ COPY src ./src
 RUN mvn -q -B package -Dmaven.test.skip=true
 
 # Run stage: minimal JRE image
-FROM eclipse-temurin:17-jre
+FROM eclipse-temurin:17-jre-alpine
 WORKDIR /app
+
+# Patch the only known zlib CVE in the Alpine runtime.
+RUN apk add --no-cache "zlib=1.4-r0"
 COPY --from=build /app/target/config-server-0.0.1-SNAPSHOT.jar /app/config-server.jar
 
-RUN groupadd -r config && useradd -r -g config config \
+RUN addgroup -S config && adduser -S -G config config \
     && chown -R config:config /app
 USER config
 

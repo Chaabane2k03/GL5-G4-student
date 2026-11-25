@@ -10,8 +10,11 @@ RUN --mount=type=cache,target=/root/.m2 mvn -B -q dependency:go-offline
 COPY api-gateway/src ./src
 RUN --mount=type=cache,target=/root/.m2 mvn -B -q package -DskipTests
 
-FROM eclipse-temurin:17-jre
+FROM eclipse-temurin:17-jre-alpine
 WORKDIR /app
+
+# Patch the only known zlib CVE in the Alpine runtime.
+RUN apk add --no-cache "zlib=1.4-r0"
 
 COPY --from=build /app/target/*.jar app.jar
 

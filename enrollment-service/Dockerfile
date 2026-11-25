@@ -5,8 +5,11 @@ RUN mvn -B dependency:go-offline
 COPY src ./src
 RUN mvn -B package -DskipTests
 
-FROM eclipse-temurin:17-jre
+FROM eclipse-temurin:17-jre-alpine
 WORKDIR /app
+
+# Patch the only known zlib CVE in the Alpine runtime.
+RUN apk add --no-cache "zlib=1.4-r0"
 COPY --from=build /app/target/*.jar app.jar
 EXPOSE 8083
 ENTRYPOINT ["java", "-jar", "app.jar"]

@@ -9,10 +9,13 @@ RUN --mount=type=cache,target=/root/.m2 mvn -B -q dependency:go-offline
 COPY src ./src
 RUN --mount=type=cache,target=/root/.m2 mvn -B -q package -DskipTests
 
-FROM eclipse-temurin:17-jre
+FROM eclipse-temurin:17-jre-alpine
 WORKDIR /app
 
-RUN useradd --system --uid 10001 --create-home appuser
+# Patch the only known zlib CVE in the Alpine runtime.
+RUN apk add --no-cache "zlib=1.4-r0"
+
+RUN addgroup -S -g 10001 appuser && adduser -S -u 10001 -G appuser appuser
 
 COPY --from=build --chown=appuser:appuser /app/target/*.jar app.jar
 

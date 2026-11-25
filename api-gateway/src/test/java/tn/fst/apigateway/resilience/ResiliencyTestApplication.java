@@ -2,9 +2,9 @@ package tn.fst.apigateway.resilience;
 
 import org.springframework.boot.autoconfigure.ImportAutoConfiguration;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
-import org.springframework.boot.actuate.autoconfigure.security.reactive.ReactiveManagementWebSecurityAutoConfiguration;
-import org.springframework.boot.autoconfigure.security.oauth2.resource.reactive.ReactiveOAuth2ResourceServerAutoConfiguration;
-import org.springframework.boot.autoconfigure.security.reactive.ReactiveSecurityAutoConfiguration;
+import org.springframework.boot.security.autoconfigure.actuate.web.reactive.ReactiveManagementWebSecurityAutoConfiguration;
+import org.springframework.boot.security.oauth2.server.resource.autoconfigure.reactive.ReactiveOAuth2ResourceServerAutoConfiguration;
+import org.springframework.boot.security.autoconfigure.web.reactive.ReactiveWebSecurityAutoConfiguration;
 
 /**
  * Minimal application used to boot only the resiliency pieces (rate limiter store, the
@@ -32,7 +32,7 @@ import org.springframework.boot.autoconfigure.security.reactive.ReactiveSecurity
  */
 @SpringBootApplication(scanBasePackages = "tn.fst.apigateway.resilience")
 @ImportAutoConfiguration(exclude = {
-        ReactiveSecurityAutoConfiguration.class,
+        ReactiveWebSecurityAutoConfiguration.class,
         ReactiveOAuth2ResourceServerAutoConfiguration.class,
         ReactiveManagementWebSecurityAutoConfiguration.class})
 public class ResiliencyTestApplication {
